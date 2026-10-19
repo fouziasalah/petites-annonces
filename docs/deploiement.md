@@ -14,7 +14,7 @@ git push main ──► GitHub Actions
 
 | Élément | Valeur |
 |---|---|
-| Dépôt GitHub | `github.com/fouziasalah/petitesannonces` (public) |
+| Dépôt GitHub | `github.com/fouziasalah/petites-annonces` (public) |
 | Images Docker Hub | `fouziasalahhhh/petitesannonces-backend`, `fouziasalahhhh/petitesannonces-frontend` |
 | VM | Ubuntu 24.04, `72.60.188.97`, dossier `/opt/petitesannonces`, utilisateur `deploy` |
 
