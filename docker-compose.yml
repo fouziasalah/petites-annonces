@@ -21,6 +21,14 @@
 #   ANNONCES_DB_PASSWORD         mot de passe de l'utilisateur « annonces » (celui du backend)
 #   KC_BOOTSTRAP_ADMIN_USERNAME  identifiant de l'administrateur Keycloak
 #   KC_BOOTSTRAP_ADMIN_PASSWORD  mot de passe de l'administrateur Keycloak
+#
+# Adresse de l'application (exportées par la pipeline lors du déploiement sur la VM) :
+#   PUBLIC_HOST         hôte de base de TOUTES les URLs vues par le navigateur
+#                       (localhost en local, IP de la VM en déploiement)
+#   BIND_ADDRESS        interface où les ports sont publiés : 127.0.0.1 = ta machine seulement,
+#                       0.0.0.0 = accessible depuis Internet
+#   REALM_SSL_REQUIRED  HTTPS exigé par le realm : « external » refuse le HTTP depuis une
+#                       adresse publique ; « none » l'autorise (VM sans HTTPS)
 # =============================================================================
 
 # Nom du projet : préfixe des conteneurs, du réseau et du volume (petitesannonces-postgres-1…).
@@ -90,7 +98,7 @@ services:
       KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-dev-keycloak-db}
       # URL de Keycloak telle que le NAVIGATEUR la voit. Elle sert d'émetteur (« iss ») dans
       # les tokens : http://localhost:8180/realms/annonces (et non http://keycloak:8080/…).
-      KC_HOSTNAME: http://localhost:8180
+      KC_HOSTNAME: http://${PUBLIC_HOST:-localhost}:8180
       KC_HTTP_ENABLED: "true"
       # Active /health/ready sur le port de management 9000 (utilisé par le healthcheck).
       KC_HEALTH_ENABLED: "true"
@@ -105,13 +113,14 @@ services:
       REALM_PWD_ADMIN: ${REALM_PWD_ADMIN:?définir dans .env}
       REALM_RSA_PRIVATE_KEY: ${REALM_RSA_PRIVATE_KEY:?lancer scripts/gen-keys.sh}
       REALM_RSA_CERTIFICATE: ${REALM_RSA_CERTIFICATE:?lancer scripts/gen-keys.sh}
+      PUBLIC_HOST: ${PUBLIC_HOST:-localhost}
+      REALM_SSL_REQUIRED: ${REALM_SSL_REQUIRED:-external}
     volumes:
       # Fichier du realm, monté en lecture seule dans le dossier d'import de Keycloak.
       - ./keycloak/realm-annonces.json:/opt/keycloak/data/import/realm-annonces.json:ro
     ports:
-      # Port 8180 de ta machine → port 8080 du conteneur ; 127.0.0.1 : accessible depuis ta
-      # machine uniquement.
-      - "127.0.0.1:8180:8080"
+      # Port 8180 de la machine → port 8080 du conteneur, sur l'interface BIND_ADDRESS.
+      - "${BIND_ADDRESS:-127.0.0.1}:8180:8080"
     networks: [public, internal]
     # Keycloak ne démarre qu'une fois PostgreSQL déclaré en bonne santé.
     depends_on:
@@ -174,7 +183,7 @@ services:
     environment:
       # DB-less : pas de base de données, configuration lue dans le fichier ci-dessous.
       KONG_DATABASE: "off"
-      KONG_DECLARATIVE_CONFIG: /kong/kong.yml
+      KONG_DECLARATIVE_CONFIG: /tmp/kong.yml
       # Plugins activés : ceux fournis avec Kong (« bundled ») + notre plugin Lua.
       KONG_PLUGINS: bundled,identity-headers
       # Où Lua cherche les plugins : « kong.plugins.identity-headers » correspond au dossier
@@ -184,12 +193,21 @@ services:
       KONG_PROXY_LISTEN: 0.0.0.0:8000
       # API d'administration de Kong : limitée au conteneur lui-même, jamais publiée (§ 2).
       KONG_ADMIN_LISTEN: 127.0.0.1:8001
+    # kong.yml est écrit pour localhost. Au démarrage, sed en fait une copie (/tmp/kong.yml) où
+    # « http://localhost: » devient « http://PUBLIC_HOST: » (origine CORS et émetteur des
+    # tokens), puis lance Kong avec la commande d'origine de l'image.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >-
+        sed 's|http://localhost:|http://${PUBLIC_HOST:-localhost}:|g' /kong/kong.yml > /tmp/kong.yml &&
+        exec /docker-entrypoint.sh kong docker-start
     volumes:
       - ./kong/kong.yml:/kong/kong.yml:ro
       - ./kong/plugins/identity-headers:/usr/local/kong/custom/kong/plugins/identity-headers:ro
     ports:
-      # Port 8080 de ta machine → port 8000 du proxy Kong (§ 3.1).
-      - "127.0.0.1:8080:8000"
+      # Port 8080 de la machine → port 8000 du proxy Kong (§ 3.1).
+      - "${BIND_ADDRESS:-127.0.0.1}:8080:8000"
     # public : joignable par le navigateur ; internal : pour joindre le backend.
     networks: [public, internal]
     depends_on:
@@ -213,12 +231,12 @@ services:
     restart: unless-stopped
     # Écrites dans /config.json au démarrage : URLs vues par le NAVIGATEUR.
     environment:
-      KEYCLOAK_URL: http://localhost:8180
+      KEYCLOAK_URL: http://${PUBLIC_HOST:-localhost}:8180
       # Le front appelle l'API UNIQUEMENT via la gateway Kong (jamais le backend directement).
-      GATEWAY_URL: http://localhost:8080
+      GATEWAY_URL: http://${PUBLIC_HOST:-localhost}:8080
     ports:
-      # Port 4200 de ta machine → port 8080 de Nginx dans le conteneur.
-      - "127.0.0.1:4200:8080"
+      # Port 4200 de la machine → port 8080 de Nginx dans le conteneur.
+      - "${BIND_ADDRESS:-127.0.0.1}:4200:8080"
     networks: [public]
     depends_on:
       keycloak:

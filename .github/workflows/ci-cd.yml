@@ -103,16 +103,20 @@ jobs:
       # Se connecte à la VM et exécute les commandes du bloc « <<'EOF' … EOF » là-bas.
       # StrictHostKeyChecking=accept-new : accepte la VM à la première connexion.
       # Les variables passées avant « bash -s » sont celles adaptées à la VM :
-      #   DOCKERHUB_USERNAME + IMAGE_TAG → docker compose télécharge les images du commit déployé.
+      #   DOCKERHUB_USERNAME + IMAGE_TAG → docker compose télécharge les images du commit déployé ;
+      #   PUBLIC_HOST = IP de la VM      → base de toutes les URLs (http://IP:4200, :8080, :8180) ;
+      #   BIND_ADDRESS = 0.0.0.0         → ports accessibles depuis Internet ;
+      #   REALM_SSL_REQUIRED = none      → Keycloak accepte le HTTP (pas de HTTPS sur la VM).
       - name: git pull + docker compose up sur la VM
         run: |
           ssh -i ~/vm_key -o StrictHostKeyChecking=accept-new \
             ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} \
             DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }} IMAGE_TAG=${{ github.sha }} \
+            PUBLIC_HOST=${{ secrets.VM_HOST }} BIND_ADDRESS=0.0.0.0 REALM_SSL_REQUIRED=none \
             REPO=https://github.com/${{ github.repository }}.git \
             bash -s <<'EOF'
           set -e
-          export DOCKERHUB_USERNAME IMAGE_TAG
+          export DOCKERHUB_USERNAME IMAGE_TAG PUBLIC_HOST BIND_ADDRESS REALM_SSL_REQUIRED
           # Premier déploiement : clone le dépôt ; ensuite : récupère la dernière version.
           [ -d /opt/petitesannonces/.git ] || git clone "$REPO" /opt/petitesannonces
           cd /opt/petitesannonces

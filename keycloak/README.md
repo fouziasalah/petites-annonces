@@ -14,10 +14,10 @@ Action → Delete) ou de la base (`docker compose down -v`, qui efface aussi les
 | Élément | Valeur | Rôle |
 |---|---|---|
 | `accessTokenLifespan` | `300` | access token valable 5 minutes |
-| `sslRequired` | `external` | HTTP accepté depuis localhost / réseau privé, HTTPS exigé sinon |
+| `sslRequired` | `${REALM_SSL_REQUIRED}` : `external` en local, `none` sur la VM | `external` : HTTP accepté depuis localhost / réseau privé, HTTPS exigé sinon ; `none` : HTTP accepté partout (VM sans HTTPS) |
 | rôles | `USER`, `MODERATEUR` (contient USER), `ADMIN` (contient MODERATEUR) | rôles **composites** : un admin reçoit les 3 dans son token |
 | client `annonces-front` | public, Standard flow seul, PKCE `S256` | flux Authorization Code + PKCE ; implicit et mot de passe direct interdits |
-| `redirectUris` / `webOrigins` / `post.logout.redirect.uris` | `http://localhost:4200…` | retour après login, CORS de l'échange du code, retour après déconnexion |
+| `redirectUris` / `webOrigins` / `post.logout.redirect.uris` | `http://${PUBLIC_HOST}:4200…` (localhost en local, IP de la VM en déploiement) | retour après login, CORS de l'échange du code, retour après déconnexion |
 | utilisateurs | `alice`, `bob` (USER), `modo` (MODERATEUR), `admin` (ADMIN) | email, prénom et nom renseignés : sinon Keycloak demande de compléter le profil |
 | `rsa-annonces-fixe` | priorité 200, RS256 | **paire de clés fixe** qui signe les tokens (voir ci-dessous) |
 | `hmac-generated`, `aes-generated` | générées par Keycloak | clés internes de Keycloak (jamais vues par Kong) |

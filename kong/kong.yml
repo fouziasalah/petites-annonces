@@ -8,6 +8,9 @@
 # Les plugins s'exécutent par PRIORITÉ DÉCROISSANTE :
 #   cors (2000) → jwt (1450) → identity-headers (1000) → rate-limiting (910)
 #
+# « http://localhost: » est remplacé au démarrage par « http://PUBLIC_HOST: » (IP de la VM
+# en déploiement) : voir l'entrypoint du service gateway dans docker-compose.yml.
+#
 # Modifier ce fichier : docker compose restart gateway
 # =============================================================================
 

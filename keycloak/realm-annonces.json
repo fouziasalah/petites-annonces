@@ -2,7 +2,7 @@
   "realm": "annonces",
   "displayName": "PetitesAnnonces",
   "enabled": true,
-  "sslRequired": "external",
+  "sslRequired": "${REALM_SSL_REQUIRED}",
   "registrationAllowed": false,
   "accessTokenLifespan": 300,
   "roles": {
@@ -36,12 +36,12 @@
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": false,
-      "rootUrl": "http://localhost:4200",
-      "redirectUris": ["http://localhost:4200/*"],
-      "webOrigins": ["http://localhost:4200"],
+      "rootUrl": "http://${PUBLIC_HOST}:4200",
+      "redirectUris": ["http://${PUBLIC_HOST}:4200/*"],
+      "webOrigins": ["http://${PUBLIC_HOST}:4200"],
       "attributes": {
         "pkce.code.challenge.method": "S256",
-        "post.logout.redirect.uris": "http://localhost:4200/*"
+        "post.logout.redirect.uris": "http://${PUBLIC_HOST}:4200/*"
       }
     }
   ],
