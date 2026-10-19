@@ -65,11 +65,12 @@ Aucune commande à taper sur la VM. Avant chaque déploiement, le CD exécute
 ```bash
 scripts/prepare-secrets.sh
 ```
-🤖 Crée la clé SSH du robot (`~/.ssh/petitesannonces_deploy`), `.env.prod` (mots de passe
-aléatoires, **nouvelle** paire RSA, URLs `localhost` et ports VM 14200/18080/18180 en option A ;
-URLs `https://…sslip.io` si l'on passe un domaine en argument) et le dossier **`.secrets/`** avec un
-fichier par secret GitHub. `.env.prod` et `.secrets/` sont ignorés par Git. Conserve `.env.prod`
-dans un gestionnaire de mots de passe : il contient les identifiants admin Keycloak.
+🤖 Crée la clé SSH du robot (`~/.ssh/petitesannonces_deploy`) et le dossier **`.secrets/`** avec
+un fichier par secret GitHub (ignoré par Git).
+
+Les **mots de passe de l'application** (Postgres, Keycloak, comptes de test, clé RSA du realm) ne
+passent **pas** par GitHub : au premier déploiement, la CD les **génère directement sur la VM**
+dans `/opt/petitesannonces/.env` (droits 600), puis les conserve aux déploiements suivants.
 
 **3.2 Autoriser la clé du robot sur la VM** — depuis ton PC (demande la passphrase de TA clé) :
 ```bash
@@ -93,9 +94,8 @@ ssh -i ~/.ssh/petitesannonces_deploy root@72.60.188.97 "echo OK"     # doit affi
 | `VM_USER` | `.secrets/VM_USER` | `root` |
 | `VM_SSH_PORT` | `.secrets/VM_SSH_PORT` | `22` |
 | `VM_SSH_KEY` | `.secrets/VM_SSH_KEY` | clé **privée** du robot (lignes BEGIN/END comprises) |
-| `ENV_FILE` | `.secrets/ENV_FILE` | copie de `.env.prod` |
 
-Aucun environnement GitHub ni variable à créer : les 7 secrets suffisent.
+Aucun environnement GitHub ni variable à créer : ces 6 secrets suffisent.
 
 **3.6 Premier déploiement** — *Actions* → **CD** → *Run workflow* (champ `image_tag` vide).
 Ensuite, chaque push sur `main` dont la CI est verte est déployé automatiquement.
@@ -108,8 +108,13 @@ ssh -N -i ~/.ssh/petitesannonces_deploy \
     root@72.60.188.97
 ```
 Puis, dans le navigateur : http://localhost:4200 (application) et http://localhost:8180/admin
-(console Keycloak, `kcadmin`, mot de passe : `grep KC_BOOTSTRAP_ADMIN_PASSWORD .env.prod`).
-Les mots de passe des comptes de test sont dans `.env.prod` (`REALM_PWD_*`).
+(console Keycloak, utilisateur `kcadmin`).
+
+Les mots de passe ont été générés sur la VM. Pour en avoir une copie locale (ignorée par Git) :
+```bash
+scp -i ~/.ssh/petitesannonces_deploy root@72.60.188.97:/opt/petitesannonces/.env .env.vm
+grep -E 'KC_BOOTSTRAP_ADMIN_PASSWORD|REALM_PWD' .env.vm
+```
 
 Pourquoi ça marche : le navigateur parle à `localhost:4200/8080/8180` comme en local ; ssh
 transporte chaque connexion, chiffrée, jusqu'aux ports 14200/18080/18180 de la VM. L'émetteur
@@ -136,7 +141,8 @@ un contexte sécurisé pour le navigateur.
    - SSH avec la clé dédiée (empreinte du serveur acceptée à la première connexion) ;
    - copie de `docker-compose*.yml`, `kong/`, `keycloak/`, `postgres/`, `caddy/` dans
      `/opt/petitesannonces` (pas de code source sur la VM : il est dans les images) ;
-   - écriture du `.env` (droits 600) depuis `ENV_FILE`, avec `IMAGE_TAG=<sha>` ;
+   - `.env` : **créé sur la VM au 1er déploiement** (`init-prod-env.sh` : mots de passe aléatoires,
+     clé RSA), conservé ensuite ; seul `IMAGE_TAG=<sha>` est mis à jour ;
    - `docker compose pull` puis `up -d --no-build --remove-orphans --wait` ;
    - smoke tests HTTPS : `config.json` du front, `issuer` de Keycloak, `401` de la gateway sans token ;
    - `docker image prune -f`.
@@ -149,7 +155,9 @@ la VM redémarre sur ces images.
 
 ## 6. Points d'attention
 
-- **Realm et `init.sql` ne s'appliquent qu'au premier démarrage** (volume vide). Changer
-  `.env.prod` après le premier déploiement ne change ni les mots de passe en base ni le realm :
+- **Realm et `init.sql` ne s'appliquent qu'au premier démarrage** (volume vide). Modifier le
+  `.env` de la VM après le premier déploiement ne change ni les mots de passe en base ni le realm :
   il faut alors repartir d'un volume vide (`docker compose down -v`, **perte des données**).
+- **Ne jamais supprimer `/opt/petitesannonces/.env` seul** : la CD en régénérerait un avec de
+  nouveaux mots de passe, qui ne correspondraient plus à la base existante.
 - **Sauvegarde** : `docker compose exec postgres pg_dumpall -U postgres > sauvegarde.sql`.

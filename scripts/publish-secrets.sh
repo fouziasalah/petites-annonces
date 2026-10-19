@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # -----------------------------------------------------------------------------
 # Envoie la configuration de déploiement dans GitHub, avec la CLI officielle « gh » :
-#   - les 7 secrets à partir des fichiers de .secrets/ (scripts/prepare-secrets.sh).
+#   - les 6 secrets à partir des fichiers de .secrets/ (scripts/prepare-secrets.sh).
 #
 # Prérequis : gh installé (winget install --id GitHub.cli) et authentifié (gh auth login).
 # Les valeurs sont lues dans les fichiers et transmises chiffrées à GitHub : elles ne
@@ -14,7 +14,7 @@ source "$(dirname "$0")/lib/common.sh"
 
 REPO="${REPO:-fouziasalah/petites-annonces}"
 DIR="$ROOT_DIR/.secrets"
-SECRETS=(DOCKERHUB_USERNAME DOCKERHUB_TOKEN VM_HOST VM_USER VM_SSH_PORT VM_SSH_KEY ENV_FILE)
+SECRETS=(DOCKERHUB_USERNAME DOCKERHUB_TOKEN VM_HOST VM_USER VM_SSH_PORT VM_SSH_KEY)
 
 command -v gh > /dev/null || { echo "gh absent : winget install --id GitHub.cli" >&2; exit 1; }
 gh auth status > /dev/null 2>&1 || { echo "gh non authentifié : gh auth login" >&2; exit 1; }

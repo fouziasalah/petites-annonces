@@ -110,10 +110,10 @@ postgres ──healthy──► keycloak ─────────────
 | | Local | VM |
 |---|---|---|
 | Fichiers Compose | `docker-compose.yml` | `docker-compose.yml` **+** `docker-compose.vm.yml` (ajoute Caddy) |
-| Variables | `.env` copié de `.env.example` (valeurs de dev publiques) | `.env` écrit par la CD depuis le secret `ENV_FILE` |
+| Variables | `.env` copié de `.env.example` (valeurs de dev publiques) | `.env` **généré sur la VM** au 1er déploiement, conservé ensuite |
 | URLs | `http://localhost:4200 / 8080 / 8180` | `https://app. / api. / auth.72-60-188-97.sslip.io` |
 | Images backend/frontend | construites sur place (`--build`) | téléchargées de Docker Hub (`pull`, `--no-build`) |
-| Clé RSA du realm | clé de dev de `.env.example` | nouvelle clé générée (`.env.prod`) |
+| Clé RSA du realm | clé de dev de `.env.example` | nouvelle clé générée sur la VM |
 
 ---
 
@@ -168,11 +168,11 @@ flowchart TB
     BP --> DP
     subgraph DP["job deploy — un seul à la fois"]
       direction TB
-      d1["SSH : clé VM_SSH_KEY"] --> d2["prépare .env = ENV_FILE + IMAGE_TAG=c69dc54"]
-      d2 --> d3["vm-bootstrap.sh : Docker installé ? dossier ? ports 80/443 libres ?"]
-      d3 --> d4["copie compose, kong, keycloak, postgres, caddy + .env (droits 600)"]
+      d1["SSH : clé VM_SSH_KEY"] --> d2["vm-bootstrap.sh : Docker installé ? dossier ? ports libres ?"]
+      d2 --> d3["copie compose, kong, keycloak, postgres, caddy + scripts"]
+      d3 --> d4[".env : généré sur la VM au 1er déploiement, sinon conservé<br/>IMAGE_TAG mis à jour"]
       d4 --> d5["docker compose pull<br/>docker compose up -d --no-build --wait"]
-      d5 --> d6["smoke tests HTTPS :<br/>config.json 200 · issuer Keycloak · API sans token = 401"]
+      d5 --> d6["smoke tests (via tunnel SSH) :<br/>config.json 200 · issuer Keycloak · API sans token = 401"]
       d6 --> d7["docker image prune"]
     end
 ```
@@ -183,9 +183,12 @@ flowchart TB
 |---|---|---|
 | `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` | build-push | se connecter à Docker Hub et pousser les images |
 | `VM_HOST`, `VM_USER`, `VM_SSH_PORT`, `VM_SSH_KEY` | deploy | ouvrir la session SSH |
-| `ENV_FILE` | deploy | devient `/opt/petitesannonces/.env` : mots de passe, clé RSA, URLs |
 
 GitHub masque automatiquement ces valeurs dans les logs, et elles ne sont jamais écrites dans le dépôt.
+
+Les **mots de passe de l'application** ne font pas partie de ces secrets : au premier déploiement,
+`scripts/init-prod-env.sh` les génère **sur la VM** (`/opt/petitesannonces/.env`, droits 600). Ils ne
+quittent donc jamais le serveur ; les déploiements suivants réutilisent ce fichier.
 
 ### Les tags d'images et le rollback
 

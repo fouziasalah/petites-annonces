@@ -16,7 +16,15 @@
 set -euo pipefail
 
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/petitesannonces}"
-PUBLIC_DOMAIN="${PUBLIC_DOMAIN:-}"
+
+# Mode et ports : lus dans le .env déjà présent sur la VM ; au premier déploiement
+# (pas encore de .env), valeurs par défaut de l'option A (tunnel SSH).
+env_value() { [ -f "$DEPLOY_DIR/.env" ] && sed -n "s/^$1=//p" "$DEPLOY_DIR/.env" | tail -1; }
+PUBLIC_DOMAIN="$(env_value PUBLIC_DOMAIN || true)"
+FRONT_HOST_PORT="$(env_value FRONT_HOST_PORT || true)"; FRONT_HOST_PORT="${FRONT_HOST_PORT:-14200}"
+GATEWAY_HOST_PORT="$(env_value GATEWAY_HOST_PORT || true)"; GATEWAY_HOST_PORT="${GATEWAY_HOST_PORT:-18080}"
+KC_HOST_PORT="$(env_value KC_HOST_PORT || true)"; KC_HOST_PORT="${KC_HOST_PORT:-18180}"
+
 SUDO=""
 if [ "$(id -u)" -ne 0 ]; then
     SUDO="sudo -n"
@@ -50,7 +58,7 @@ ports_to_check() {
     if [ -n "$PUBLIC_DOMAIN" ]; then
         echo "80 443"
     else
-        echo "${FRONT_HOST_PORT:-4200} ${GATEWAY_HOST_PORT:-8080} ${KC_HOST_PORT:-8180}"
+        echo "$FRONT_HOST_PORT $GATEWAY_HOST_PORT $KC_HOST_PORT"
     fi
 }
 conflicts=""
@@ -64,7 +72,7 @@ done
 if [ -n "$conflicts" ]; then
     echo "✘ Ports déjà utilisés par une autre application (rien n'a été modifié) :" >&2
     printf '%s' "$conflicts" >&2
-    echo "  → choisir d'autres valeurs pour *_HOST_PORT dans ENV_FILE." >&2
+    echo "  → choisir d'autres valeurs pour *_HOST_PORT dans $DEPLOY_DIR/.env (ou dans .env.example avant le 1er déploiement)." >&2
     exit 1
 fi
 echo "✔ ports libres : $(ports_to_check)"

@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # -----------------------------------------------------------------------------
-# Crée le fichier d'environnement de PRODUCTION (.env.prod, ignoré par Git) :
+# Crée un fichier d'environnement de PRODUCTION (par défaut .env.prod, ignoré par Git) :
 #   - mots de passe aléatoires (Postgres, Keycloak, utilisateurs de test) ;
 #   - nouvelle paire RSA pour le realm (≠ clé de dev publique de .env.example) ;
 #   - URLs publiques selon le mode de déploiement.
 #
-# Le contenu du fichier est ensuite collé TEL QUEL dans le secret GitHub ENV_FILE ;
-# la CD l'écrit en .env sur la VM. Gardez ce fichier hors de Git (gestionnaire de mots de passe).
+# La CD l'exécute SUR LA VM au premier déploiement (OUT=.env) : les secrets sont
+# générés sur place et ne transitent jamais par GitHub. Ne jamais le relancer sur un
+# .env existant : les mots de passe d'une base déjà créée ne changeraient pas.
 #
 # USAGE
 #   scripts/init-prod-env.sh                          # option A : tunnel SSH (URLs localhost)
@@ -58,4 +59,3 @@ bash "$ROOT_DIR/scripts/gen-keys.sh" "$OUT" > /dev/null
 
 echo "→ $OUT créé."
 echo "   Mots de passe des comptes : grep -E 'KC_BOOTSTRAP|REALM_PWD' $OUT"
-echo "   À coller dans le secret GitHub ENV_FILE : cat $OUT"

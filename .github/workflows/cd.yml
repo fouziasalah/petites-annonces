@@ -7,7 +7,8 @@
 #     indiquant le tag d'une image déjà publiée (SHA court d'un commit).
 #
 # Secrets requis (voir docs/deploiement.md) : DOCKERHUB_USERNAME, DOCKERHUB_TOKEN,
-# VM_HOST, VM_USER, VM_SSH_PORT, VM_SSH_KEY, ENV_FILE.
+# VM_HOST, VM_USER, VM_SSH_PORT, VM_SSH_KEY. Les mots de passe de production ne sont
+# PAS dans GitHub : ils sont générés sur la VM au premier déploiement.
 # =============================================================================
 name: CD
 
@@ -132,31 +133,35 @@ jobs:
             StrictHostKeyChecking accept-new
           EOF
 
-      - name: Préparation du .env de production
-        env:
-          ENV_FILE: ${{ secrets.ENV_FILE }}
-        run: |
-          umask 077
-          printf '%s\n' "$ENV_FILE" | sed '/^IMAGE_TAG=/d' > "$RUNNER_TEMP/deploy.env"
-          echo "IMAGE_TAG=$IMAGE_TAG" >> "$RUNNER_TEMP/deploy.env"
-          # Valeurs NON secrètes utiles aux étapes suivantes (mode, URLs, ports de la VM).
-          for var in PUBLIC_DOMAIN FRONT_PUBLIC_URL GATEWAY_PUBLIC_URL KC_PUBLIC_URL \
-                     FRONT_HOST_PORT GATEWAY_HOST_PORT KC_HOST_PORT; do
-            echo "$var=$(sed -n "s/^$var=//p" "$RUNNER_TEMP/deploy.env")" >> "$GITHUB_ENV"
-          done
-
       - name: Préparation de la VM (Docker, dossier, ports — idempotent)
-        run: |
-          ssh vm "DEPLOY_DIR=$DEPLOY_DIR PUBLIC_DOMAIN=$PUBLIC_DOMAIN \
-            FRONT_HOST_PORT=$FRONT_HOST_PORT GATEWAY_HOST_PORT=$GATEWAY_HOST_PORT KC_HOST_PORT=$KC_HOST_PORT \
-            bash -s" < scripts/vm-bootstrap.sh
+        run: ssh vm "DEPLOY_DIR=$DEPLOY_DIR bash -s" < scripts/vm-bootstrap.sh
 
       - name: Copie des fichiers de déploiement
         run: |
-          # Uniquement ce qui est monté dans les conteneurs : pas de code source sur la VM.
+          # Ce qui est monté dans les conteneurs + de quoi générer le .env sur place.
+          # Pas de code applicatif sur la VM : il est dans les images.
           tar czf - docker-compose.yml docker-compose.vm.yml kong keycloak postgres caddy \
+              .env.example scripts/lib/common.sh scripts/gen-keys.sh scripts/init-prod-env.sh \
             | ssh vm "tar xzf - -C $DEPLOY_DIR"
-          ssh vm "umask 077 && cat > $DEPLOY_DIR/.env" < "$RUNNER_TEMP/deploy.env"
+
+      # Les secrets de production (mots de passe, clé RSA du realm) sont GÉNÉRÉS SUR LA VM
+      # au premier déploiement, puis conservés : ils ne transitent jamais par GitHub.
+      # Les déploiements suivants ne modifient que IMAGE_TAG (changer les mots de passe
+      # d'une base existante la rendrait inaccessible).
+      - name: Fichier .env sur la VM (créé une seule fois)
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          ssh vm "cd $DEPLOY_DIR && umask 077 && \
+            if [ ! -f .env ]; then \
+              DOCKERHUB_USERNAME=$DOCKERHUB_USERNAME OUT=.env bash scripts/init-prod-env.sh > /dev/null && \
+              echo '.env créé sur la VM (secrets générés sur place)'; \
+            else echo '.env existant conservé'; fi && \
+            . scripts/lib/common.sh && set_env .env IMAGE_TAG $IMAGE_TAG && \
+            set_env .env DOCKERHUB_USERNAME $DOCKERHUB_USERNAME && chmod 600 .env"
+          # Valeurs NON secrètes utiles aux étapes suivantes (mode, URLs, ports de la VM).
+          ssh vm "grep -E '^(PUBLIC_DOMAIN|(FRONT|GATEWAY|KC)_PUBLIC_URL|(FRONT|GATEWAY|KC)_HOST_PORT)=' $DEPLOY_DIR/.env" \
+            >> "$GITHUB_ENV"
 
       # Les fichiers Compose utilisés viennent de COMPOSE_FILE dans .env :
       #   option A (tunnel) : docker-compose.yml seul ;
