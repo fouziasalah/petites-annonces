@@ -1,0 +1,7 @@
+# Fichiers exclus de la construction de l'image : inutiles, ou recréés dans l'image.
+target/
+.mvn/
+mvnw
+mvnw.cmd
+*.iml
+.idea/

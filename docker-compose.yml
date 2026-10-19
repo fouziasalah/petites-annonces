@@ -1,5 +1,5 @@
 # =============================================================================
-# Services d'infrastructure de PetitesAnnonces : PostgreSQL et Keycloak.
+# Services de PetitesAnnonces : PostgreSQL, Keycloak, backend et frontend.
 #
 # Commandes (à la racine du projet) :
 #   docker compose up -d --wait     démarre les services et attend qu'ils soient prêts
@@ -16,7 +16,6 @@
 #   ANNONCES_DB_PASSWORD         mot de passe de l'utilisateur « annonces » (celui du backend)
 #   KC_BOOTSTRAP_ADMIN_USERNAME  identifiant de l'administrateur Keycloak
 #   KC_BOOTSTRAP_ADMIN_PASSWORD  mot de passe de l'administrateur Keycloak
-#   POSTGRES_HOST_PORT           port de PostgreSQL sur ta machine
 # =============================================================================
 
 # Nom du projet : préfixe des conteneurs, du réseau et du volume (petitesannonces-postgres-1…).
@@ -42,12 +41,8 @@ services:
       - postgres-data:/var/lib/postgresql/data
       # Script d'initialisation, monté en lecture seule (:ro).
       - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    # TEMPORAIRE : PostgreSQL est accessible depuis ta machine (127.0.0.1 uniquement, pas depuis
-    # le réseau) pour que le backend lancé avec ./mvnw spring-boot:run puisse s'y connecter.
-    # À SUPPRIMER quand le backend tournera lui aussi dans Docker Compose : le cahier des
-    # charges demande que la base ne soit pas exposée.
-    ports:
-      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
+    # Pas de « ports » : la base n'est joignable que par les autres conteneurs (backend,
+    # keycloak), sous le nom « postgres ». Elle n'est pas exposée sur ta machine.
     # Vérification de l'état du service, utilisée par « depends_on » et « --wait ».
     healthcheck:
       # pg_isready (fourni dans l'image) : la base accepte-t-elle les connexions ?
@@ -107,6 +102,54 @@ services:
       timeout: 5s
       retries: 15
       start_period: 30s
+
+  # ---------------------------------------------------------------------------
+  # Backend Spring Boot (API : http://localhost:8081/api/…)
+  # ---------------------------------------------------------------------------
+  backend:
+    # Image construite à partir de backend/Dockerfile.
+    build: ./backend
+    restart: unless-stopped
+    # Variables lues par application.yml.
+    environment:
+      # « postgres » : nom du service PostgreSQL ci-dessus.
+      DB_HOST: postgres
+      DB_PASSWORD: ${ANNONCES_DB_PASSWORD:-dev-annonces-db}
+    ports:
+      - "127.0.0.1:8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # wget est fourni par l'image Alpine ; /actuator/health ne demande pas d'identité.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8081/actuator/health | grep -q UP"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  # ---------------------------------------------------------------------------
+  # Frontend Angular servi par Nginx (application : http://localhost:4200)
+  # ---------------------------------------------------------------------------
+  frontend:
+    # Image construite à partir de frontend/Dockerfile.
+    build: ./frontend
+    restart: unless-stopped
+    # Écrites dans /config.json au démarrage : URLs vues par le NAVIGATEUR.
+    environment:
+      KEYCLOAK_URL: http://localhost:8180
+      GATEWAY_URL: http://localhost:8080
+    ports:
+      # Port 4200 de ta machine → port 8080 de Nginx dans le conteneur.
+      - "127.0.0.1:4200:8080"
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
 
 # Déclaration du volume nommé utilisé par postgres.
 volumes:
