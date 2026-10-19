@@ -1,0 +1,13 @@
+# Le dépôt est développé sous Windows mais tout s'exécute sous Linux (conteneurs, CI, VM).
+# On force LF partout : un script shell ou un .env en CRLF casse silencieusement
+# (« /bin/sh^M: bad interpreter », variables suffixées par \r, etc.).
+* text=auto eol=lf
+
+*.sh   text eol=lf
+mvnw   text eol=lf
+*.cmd  text eol=crlf
+*.bat  text eol=crlf
+
+*.jar  binary
+*.png  binary
+*.ico  binary
