@@ -64,8 +64,7 @@ spring:
 server:
   # Port d'écoute HTTP de l'API.
   port: ${SERVER_PORT:8081}
-  # graceful : à l'arrêt, les requêtes en cours se terminent avant l'extinction.
-  shutdown: graceful
+
 
 # --- Spring Boot Actuator (dépendance spring-boot-starter-actuator) ---
 management:
