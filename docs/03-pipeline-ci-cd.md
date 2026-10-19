@@ -168,7 +168,7 @@ flowchart TB
     BP --> DP
     subgraph DP["job deploy — un seul à la fois"]
       direction TB
-      d1["SSH : clé VM_SSH_KEY + empreinte VM_KNOWN_HOSTS"] --> d2["prépare .env = ENV_FILE + IMAGE_TAG=c69dc54"]
+      d1["SSH : clé VM_SSH_KEY"] --> d2["prépare .env = ENV_FILE + IMAGE_TAG=c69dc54"]
       d2 --> d3["vm-bootstrap.sh : Docker installé ? dossier ? ports 80/443 libres ?"]
       d3 --> d4["copie compose, kong, keycloak, postgres, caddy + .env (droits 600)"]
       d4 --> d5["docker compose pull<br/>docker compose up -d --no-build --wait"]
@@ -183,7 +183,6 @@ flowchart TB
 |---|---|---|
 | `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` | build-push | se connecter à Docker Hub et pousser les images |
 | `VM_HOST`, `VM_USER`, `VM_SSH_PORT`, `VM_SSH_KEY` | deploy | ouvrir la session SSH |
-| `VM_KNOWN_HOSTS` | deploy | vérifier qu'on parle bien à TA VM (pas d'homme du milieu) |
 | `ENV_FILE` | deploy | devient `/opt/petitesannonces/.env` : mots de passe, clé RSA, URLs |
 
 GitHub masque automatiquement ces valeurs dans les logs, et elles ne sont jamais écrites dans le dépôt.

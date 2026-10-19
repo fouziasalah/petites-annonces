@@ -93,10 +93,9 @@ ssh -i ~/.ssh/petitesannonces_deploy root@72.60.188.97 "echo OK"     # doit affi
 | `VM_USER` | `.secrets/VM_USER` | `root` |
 | `VM_SSH_PORT` | `.secrets/VM_SSH_PORT` | `22` |
 | `VM_SSH_KEY` | `.secrets/VM_SSH_KEY` | clé **privée** du robot (lignes BEGIN/END comprises) |
-| `VM_KNOWN_HOSTS` | `.secrets/VM_KNOWN_HOSTS` | empreinte du serveur (`ssh-keyscan`) : évite de désactiver la vérification SSH |
 | `ENV_FILE` | `.secrets/ENV_FILE` | copie de `.env.prod` |
 
-Aucun environnement GitHub ni variable à créer : les 8 secrets suffisent.
+Aucun environnement GitHub ni variable à créer : les 7 secrets suffisent.
 
 **3.6 Premier déploiement** — *Actions* → **CD** → *Run workflow* (champ `image_tag` vide).
 Ensuite, chaque push sur `main` dont la CI est verte est déployé automatiquement.
@@ -134,7 +133,7 @@ un contexte sécurisé pour le navigateur.
 1. **build-push** : construit les images backend et frontend, les pousse sur Docker Hub avec deux
    tags : le SHA court du commit (immuable, sert au rollback) et `latest`.
 2. **deploy** (un seul déploiement à la fois) :
-   - SSH avec la clé dédiée, empreinte du serveur vérifiée (`VM_KNOWN_HOSTS`) ;
+   - SSH avec la clé dédiée (empreinte du serveur acceptée à la première connexion) ;
    - copie de `docker-compose*.yml`, `kong/`, `keycloak/`, `postgres/`, `caddy/` dans
      `/opt/petitesannonces` (pas de code source sur la VM : il est dans les images) ;
    - écriture du `.env` (droits 600) depuis `ENV_FILE`, avec `IMAGE_TAG=<sha>` ;

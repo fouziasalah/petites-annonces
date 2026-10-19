@@ -7,7 +7,7 @@
 #     indiquant le tag d'une image déjà publiée (SHA court d'un commit).
 #
 # Secrets requis (voir docs/deploiement.md) : DOCKERHUB_USERNAME, DOCKERHUB_TOKEN,
-# VM_HOST, VM_USER, VM_SSH_PORT, VM_SSH_KEY, VM_KNOWN_HOSTS, ENV_FILE.
+# VM_HOST, VM_USER, VM_SSH_PORT, VM_SSH_KEY, ENV_FILE.
 # =============================================================================
 name: CD
 
@@ -113,15 +113,15 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
-      - name: Configuration SSH (clé dédiée + empreinte du serveur vérifiée)
+      - name: Configuration SSH (clé dédiée)
         env:
           VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
-          VM_KNOWN_HOSTS: ${{ secrets.VM_KNOWN_HOSTS }}
         run: |
           install -d -m 700 ~/.ssh
           printf '%s\n' "$VM_SSH_KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
-          # known_hosts fourni : pas de StrictHostKeyChecking=no (attaque de l'homme du milieu).
-          printf '%s\n' "$VM_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          # accept-new : l'empreinte de la VM est acceptée à la première connexion du job
+          # (le runner est neuf à chaque exécution). Choix de simplicité : pour se protéger
+          # d'un serveur imposteur, fournir l'empreinte attendue dans ~/.ssh/known_hosts.
           cat > ~/.ssh/config <<EOF
           Host vm
             HostName ${{ secrets.VM_HOST }}
@@ -129,6 +129,7 @@ jobs:
             Port ${{ secrets.VM_SSH_PORT || '22' }}
             IdentityFile ~/.ssh/id_deploy
             IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
           EOF
 
       - name: Préparation du .env de production

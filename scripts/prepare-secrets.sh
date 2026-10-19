@@ -10,8 +10,7 @@
 # Ce que fait le script (sans jamais afficher de valeur secrète) :
 #   - clé SSH dédiée au déploiement : ~/.ssh/petitesannonces_deploy (créée si absente) ;
 #   - .env.prod : mots de passe aléatoires + nouvelle paire RSA (créé si absent) ;
-#   - empreinte SSH du serveur (ssh-keyscan) pour VM_KNOWN_HOSTS ;
-#   - .secrets/<NOM_DU_SECRET> pour chacun des 8 secrets.
+#   - .secrets/<NOM_DU_SECRET> pour chacun des 7 secrets.
 # Seul DOCKERHUB_TOKEN reste à remplir à la main (créé sur hub.docker.com).
 # -----------------------------------------------------------------------------
 set -euo pipefail
@@ -46,11 +45,6 @@ printf '%s' "$VM_USER" > "$OUT/VM_USER"
 printf '%s' "$VM_SSH_PORT" > "$OUT/VM_SSH_PORT"
 cp "$DEPLOY_KEY" "$OUT/VM_SSH_KEY"
 cp "$ROOT_DIR/.env.prod" "$OUT/ENV_FILE"
-if ssh-keyscan -p "$VM_SSH_PORT" -T 10 "$VM_HOST" 2>/dev/null > "$OUT/VM_KNOWN_HOSTS" && [[ -s "$OUT/VM_KNOWN_HOSTS" ]]; then
-    echo "→ empreinte du serveur récupérée"
-else
-    echo "✘ ssh-keyscan $VM_HOST a échoué : VM_KNOWN_HOSTS est vide" >&2
-fi
 
 echo
 echo "Fichiers prêts dans $OUT :"
