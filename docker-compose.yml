@@ -1,2 +1,113 @@
+# =============================================================================
+# Services d'infrastructure de PetitesAnnonces : PostgreSQL et Keycloak.
+#
+# Commandes (à la racine du projet) :
+#   docker compose up -d --wait     démarre les services et attend qu'ils soient prêts
+#   docker compose ps               état des services
+#   docker compose logs -f keycloak logs en direct
+#   docker compose down             arrête (les données sont CONSERVÉES dans le volume)
+#   docker compose down -v          arrête et EFFACE les données (bases et config Keycloak)
+#
+# Variables d'environnement : chaque ${NOM:-valeur} prend la valeur de la variable NOM si
+# elle existe (dans le terminal ou dans un fichier .env à côté de ce fichier), sinon la
+# valeur après « :- ». Les valeurs par défaut ci-dessous sont des valeurs de DÉVELOPPEMENT.
+#   POSTGRES_PASSWORD            mot de passe de l'administrateur PostgreSQL
+#   KEYCLOAK_DB_PASSWORD         mot de passe de l'utilisateur « keycloak » de la base
+#   ANNONCES_DB_PASSWORD         mot de passe de l'utilisateur « annonces » (celui du backend)
+#   KC_BOOTSTRAP_ADMIN_USERNAME  identifiant de l'administrateur Keycloak
+#   KC_BOOTSTRAP_ADMIN_PASSWORD  mot de passe de l'administrateur Keycloak
+#   POSTGRES_HOST_PORT           port de PostgreSQL sur ta machine
+# =============================================================================
+
+# Nom du projet : préfixe des conteneurs, du réseau et du volume (petitesannonces-postgres-1…).
+name: petitesannonces
+
 services:
-  
+  # ---------------------------------------------------------------------------
+  # PostgreSQL 16 : bases « keycloak » et « annonces » (créées par postgres/init.sql)
+  # ---------------------------------------------------------------------------
+  postgres:
+    # Image officielle, version épinglée (16.15) : le même code donne toujours le même résultat.
+    image: postgres:16.15-alpine
+    # Redémarre automatiquement le conteneur s'il s'arrête (sauf arrêt volontaire).
+    restart: unless-stopped
+    environment:
+      # Mot de passe de l'administrateur « postgres » (obligatoire pour l'image officielle).
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev-postgres}
+      # Lus par init.sql (commande \getenv) au premier démarrage.
+      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-dev-keycloak-db}
+      ANNONCES_DB_PASSWORD: ${ANNONCES_DB_PASSWORD:-dev-annonces-db}
+    volumes:
+      # Volume nommé : les données survivent à « docker compose down » (pas à « down -v »).
+      - postgres-data:/var/lib/postgresql/data
+      # Script d'initialisation, monté en lecture seule (:ro).
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    # TEMPORAIRE : PostgreSQL est accessible depuis ta machine (127.0.0.1 uniquement, pas depuis
+    # le réseau) pour que le backend lancé avec ./mvnw spring-boot:run puisse s'y connecter.
+    # À SUPPRIMER quand le backend tournera lui aussi dans Docker Compose : le cahier des
+    # charges demande que la base ne soit pas exposée.
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
+    # Vérification de l'état du service, utilisée par « depends_on » et « --wait ».
+    healthcheck:
+      # pg_isready (fourni dans l'image) : la base accepte-t-elle les connexions ?
+      # -h 127.0.0.1 force une connexion réseau : pendant l'initialisation, PostgreSQL démarre
+      # un serveur temporaire sans réseau ; sans cette option, il serait déclaré prêt trop tôt.
+      # -d annonces : vérifie aussi que la dernière base créée par init.sql existe.
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "annonces"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # Keycloak : gestion des comptes et émission des tokens (console : http://localhost:8180/admin)
+  # ---------------------------------------------------------------------------
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.1
+    restart: unless-stopped
+    # start-dev : mode développement (HTTP autorisé, caches simplifiés). En production : « start ».
+    command: ["start-dev"]
+    environment:
+      # Base de données de Keycloak : la base « keycloak » du service postgres.
+      # « postgres » est le nom du service : Docker Compose le résout en adresse réseau.
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-dev-keycloak-db}
+      # URL de Keycloak telle que le NAVIGATEUR la voit. Elle sert d'émetteur (« iss ») dans
+      # les tokens : http://localhost:8180/realms/annonces (et non http://keycloak:8080/…).
+      KC_HOSTNAME: http://localhost:8180
+      KC_HTTP_ENABLED: "true"
+      # Active /health/ready sur le port de management 9000 (utilisé par le healthcheck).
+      KC_HEALTH_ENABLED: "true"
+      # Compte administrateur créé au premier démarrage (realm « master »).
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME:-kcadmin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD:-dev-kcadmin}
+    ports:
+      # Port 8180 de ta machine → port 8080 du conteneur ; 127.0.0.1 : accessible depuis ta
+      # machine uniquement.
+      - "127.0.0.1:8180:8080"
+    # Keycloak ne démarre qu'une fois PostgreSQL déclaré en bonne santé.
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # L'image Keycloak ne contient ni curl ni wget : on ouvre une connexion TCP avec bash
+      # (/dev/tcp), on écrit la requête HTTP à la main et on cherche « UP » dans la réponse.
+      test:
+        - CMD
+        - bash
+        - -c
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/9000 &&
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          grep -q '"UP"' <&3
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+
+# Déclaration du volume nommé utilisé par postgres.
+volumes:
+  postgres-data:
