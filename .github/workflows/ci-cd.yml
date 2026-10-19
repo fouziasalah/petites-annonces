@@ -1,0 +1,127 @@
+# =============================================================================
+# Pipeline CI/CD de PetitesAnnonces (GitHub Actions) — 3 jobs enchaînés :
+#
+#   tests  ──►  build-push  ──►  deploy
+#   tests unitaires     images Docker Hub     VM : git pull + docker compose up
+#   + rapport HTML
+#
+# Un job ne démarre que si le précédent a réussi (« needs ») : si un test échoue, rien
+# n'est publié ni déployé.
+#
+# Secrets à créer dans GitHub (Settings → Secrets and variables → Actions) :
+#   DOCKERHUB_USERNAME  identifiant Docker Hub (fouziasalahhhh)
+#   DOCKERHUB_TOKEN     token d'accès Docker Hub (droits Read & Write)
+#   VM_HOST             adresse IP de la VM
+#   VM_USER             utilisateur SSH de la VM
+#   VM_SSH_KEY          clé SSH PRIVÉE autorisée sur la VM (lignes BEGIN/END comprises)
+# =============================================================================
+name: CI-CD
+
+on:
+  # À chaque push sur main…
+  push:
+    branches: [main]
+  # …ou à la main : onglet Actions → CI-CD → Run workflow.
+  workflow_dispatch:
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job 1 : tests unitaires du backend + rapport HTML
+  # ---------------------------------------------------------------------------
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      # Récupère le code du dépôt sur la machine GitHub.
+      - uses: actions/checkout@v7
+
+      # Installe Java 21 et garde en cache les dépendances Maven entre deux exécutions.
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      # test : lance les tests unitaires (*Test.java).
+      # surefire-report:report-only : transforme leurs résultats en page HTML
+      # (backend/target/reports/surefire.html).
+      - name: Tests unitaires et rapport HTML
+        working-directory: backend
+        run: ./mvnw -B test org.apache.maven.plugins:maven-surefire-report-plugin:3.6.0:report-only
+
+      # Publie le rapport : page du run → section « Artifacts » → rapport-tests (fichier zip).
+      # if: always() : publié même si des tests échouent, pour voir lesquels.
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: rapport-tests
+          path: backend/target/reports/
+
+  # ---------------------------------------------------------------------------
+  # Job 2 : construction et publication des images sur Docker Hub
+  # ---------------------------------------------------------------------------
+  build-push:
+    needs: tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Connexion à Docker Hub avec le token (jamais le mot de passe du compte).
+      - uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Construit chaque image avec deux étiquettes :
+      #   latest     la dernière version ;
+      #   <sha>      l'identifiant du commit, pour savoir quelle version tourne et revenir en arrière.
+      - name: Build et push du backend
+        run: |
+          IMAGE=${{ secrets.DOCKERHUB_USERNAME }}/petitesannonces-backend
+          docker build -t $IMAGE:latest -t $IMAGE:${{ github.sha }} backend
+          docker push --all-tags $IMAGE
+
+      - name: Build et push du frontend
+        run: |
+          IMAGE=${{ secrets.DOCKERHUB_USERNAME }}/petitesannonces-frontend
+          docker build -t $IMAGE:latest -t $IMAGE:${{ github.sha }} frontend
+          docker push --all-tags $IMAGE
+
+  # ---------------------------------------------------------------------------
+  # Job 3 : déploiement sur la VM
+  # ---------------------------------------------------------------------------
+  deploy:
+    needs: build-push
+    runs-on: ubuntu-latest
+    steps:
+      # Écrit la clé privée dans un fichier lisible uniquement par son propriétaire
+      # (ssh refuse une clé lisible par d'autres).
+      - name: Clé SSH
+        run: |
+          install -m 600 /dev/null ~/vm_key
+          echo "${{ secrets.VM_SSH_KEY }}" > ~/vm_key
+
+      # Se connecte à la VM et exécute les commandes du bloc « <<'EOF' … EOF » là-bas.
+      # StrictHostKeyChecking=accept-new : accepte la VM à la première connexion.
+      # Les variables passées avant « bash -s » sont celles adaptées à la VM :
+      #   DOCKERHUB_USERNAME + IMAGE_TAG → docker compose télécharge les images du commit déployé.
+      - name: git pull + docker compose up sur la VM
+        run: |
+          ssh -i ~/vm_key -o StrictHostKeyChecking=accept-new \
+            ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} \
+            DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }} IMAGE_TAG=${{ github.sha }} \
+            REPO=https://github.com/${{ github.repository }}.git \
+            bash -s <<'EOF'
+          set -e
+          export DOCKERHUB_USERNAME IMAGE_TAG
+          # Premier déploiement : clone le dépôt ; ensuite : récupère la dernière version.
+          [ -d /opt/petitesannonces/.git ] || git clone "$REPO" /opt/petitesannonces
+          cd /opt/petitesannonces
+          git fetch origin main
+          git reset --hard origin/main
+          # Fichier .env créé une seule fois à partir du modèle (mots de passe, clés du realm).
+          [ -f .env ] || cp .env.example .env
+          # Télécharge les images du commit déployé, puis (re)démarre les 5 services.
+          docker compose pull backend frontend
+          docker compose up -d --no-build --wait
+          docker compose ps
+          EOF

@@ -1,0 +1,120 @@
+{
+  "realm": "annonces",
+  "displayName": "PetitesAnnonces",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "accessTokenLifespan": 300,
+  "roles": {
+    "realm": [
+      {
+        "name": "USER",
+        "description": "Consulter les annonces publiées, gérer ses propres annonces"
+      },
+      {
+        "name": "MODERATEUR",
+        "description": "USER + publier, rejeter, supprimer n'importe quelle annonce",
+        "composite": true,
+        "composites": { "realm": ["USER"] }
+      },
+      {
+        "name": "ADMIN",
+        "description": "MODERATEUR + gérer les catégories",
+        "composite": true,
+        "composites": { "realm": ["MODERATEUR"] }
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "annonces-front",
+      "name": "PetitesAnnonces (SPA Angular)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "rootUrl": "http://localhost:4200",
+      "redirectUris": ["http://localhost:4200/*"],
+      "webOrigins": ["http://localhost:4200"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:4200/*"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "alice",
+      "enabled": true,
+      "email": "alice@petitesannonces.test",
+      "emailVerified": true,
+      "firstName": "Alice",
+      "lastName": "Modo",
+      "realmRoles": ["USER"],
+      "credentials": [{ "type": "password", "value": "${REALM_PWD_ALICE}", "temporary": false }]
+    },
+    {
+      "username": "bob",
+      "enabled": true,
+      "email": "bob@petitesannonces.test",
+      "emailVerified": true,
+      "firstName": "Bob",
+      "lastName": "Durand",
+      "realmRoles": ["USER"],
+      "credentials": [{ "type": "password", "value": "${REALM_PWD_BOB}", "temporary": false }]
+    },
+    {
+      "username": "modo",
+      "enabled": true,
+      "email": "modo@petitesannonces.test",
+      "emailVerified": true,
+      "firstName": "Mona",
+      "lastName": "Dérateur",
+      "realmRoles": ["MODERATEUR"],
+      "credentials": [{ "type": "password", "value": "${REALM_PWD_MODO}", "temporary": false }]
+    },
+    {
+      "username": "admin",
+      "enabled": true,
+      "email": "admin@petitesannonces.test",
+      "emailVerified": true,
+      "firstName": "Ada",
+      "lastName": "Ministre",
+      "realmRoles": ["ADMIN"],
+      "credentials": [{ "type": "password", "value": "${REALM_PWD_ADMIN}", "temporary": false }]
+    }
+  ],
+  "components": {
+    "org.keycloak.keys.KeyProvider": [
+      {
+        "name": "rsa-annonces-fixe",
+        "providerId": "rsa",
+        "subComponents": {},
+        "config": {
+          "priority": ["200"],
+          "enabled": ["true"],
+          "active": ["true"],
+          "algorithm": ["RS256"],
+          "keyUse": ["SIG"],
+          "privateKey": ["${REALM_RSA_PRIVATE_KEY}"],
+          "certificate": ["${REALM_RSA_CERTIFICATE}"]
+        }
+      },
+      {
+        "name": "hmac-generated",
+        "providerId": "hmac-generated",
+        "subComponents": {},
+        "config": { "priority": ["100"], "algorithm": ["HS512"] }
+      },
+      {
+        "name": "aes-generated",
+        "providerId": "aes-generated",
+        "subComponents": {},
+        "config": { "priority": ["100"] }
+      }
+    ]
+  }
+}

@@ -1,0 +1,123 @@
+# =============================================================================
+# Configuration de la gateway Kong — mode DB-less (cahier des charges § 6.5).
+#
+# DB-less : Kong n'utilise aucune base de données ; toute sa configuration est dans ce
+# fichier, chargé au démarrage (variable KONG_DECLARATIVE_CONFIG dans docker-compose.yml).
+#
+# Rôle de Kong : CONTRÔLER chaque appel à l'API avant qu'il n'atteigne le backend.
+# Les plugins s'exécutent par PRIORITÉ DÉCROISSANTE :
+#   cors (2000) → jwt (1450) → identity-headers (1000) → rate-limiting (910)
+#
+# Modifier ce fichier : docker compose restart gateway
+# =============================================================================
+
+# Version du format de ce fichier (Kong 3.x).
+_format_version: "3.0"
+
+services:
+  # Un « service » = une application en aval vers laquelle Kong relaie les requêtes.
+  - name: annonces-backend
+    # « backend » est le nom du service Docker Compose, joignable sur le réseau « internal ».
+    url: http://backend:8081
+
+    routes:
+      # Une « route » = les requêtes entrantes que Kong envoie vers ce service.
+      - name: api
+        # Toutes les URL qui commencent par /api…
+        paths:
+          - /api
+        # …sont transmises telles quelles : /api/annonces reste /api/annonces
+        # (le backend expose lui-même ses endpoints sous /api).
+        strip_path: false
+
+    plugins:
+      # -----------------------------------------------------------------------
+      # 1. CORS (priorité 2000) : le front (http://localhost:4200) et l'API
+      #    (http://localhost:8080) sont deux origines différentes ; le navigateur
+      #    n'accepte la réponse que si Kong l'y autorise.
+      # -----------------------------------------------------------------------
+      - name: cors
+        config:
+          # Seule origine autorisée. Écrite sous forme d'expression régulière (^…$) : Kong
+          # compare alors vraiment l'en-tête Origin reçu. (Avec une origine écrite en texte
+          # simple, Kong renverrait cette origine même à un autre site.)
+          origins:
+            - '^http://localhost:4200$'
+          methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+          # En-têtes que le front a le droit d'envoyer. Content-Type est indispensable pour
+          # les POST/PUT en JSON.
+          headers: [Authorization, Content-Type]
+          # En-têtes de réponse que le JavaScript du front a le droit de lire.
+          exposed_headers: [Retry-After, Location]
+          # Le navigateur peut garder l'autorisation 10 minutes sans redemander.
+          max_age: 600
+
+      # -----------------------------------------------------------------------
+      # 2. JWT (priorité 1450) : vérifie le token envoyé par le front
+      #    (en-tête « Authorization: Bearer <token> »).
+      #    Token absent, signature fausse, expiré ou émis par un autre serveur → 401,
+      #    et le backend n'est jamais appelé.
+      # -----------------------------------------------------------------------
+      - name: jwt
+        config:
+          # Le claim « iss » (émetteur) du token indique quelle clé utiliser : Kong cherche le
+          # credential (plus bas) dont la « key » est exactement égale à « iss ».
+          key_claim_name: iss
+          # Vérifie la date d'expiration « exp » du token.
+          claims_to_verify: [exp]
+          # Le « preflight » OPTIONS du navigateur ne porte pas de token : on ne le vérifie pas.
+          run_on_preflight: false
+          # Le token n'est accepté que dans l'en-tête Authorization (par défaut Kong l'accepte
+          # aussi dans l'URL « ?jwt=… » : il arriverait alors jusqu'au backend).
+          uri_param_names: []
+
+      # -----------------------------------------------------------------------
+      # 3. identity-headers (priorité 1000) : plugin Lua maison
+      #    (kong/plugins/identity-headers/handler.lua). Remplace le token par deux en-têtes
+      #    que le backend sait lire : X_USER_ID (sub) et X_ROLE_ID (rôles).
+      # -----------------------------------------------------------------------
+      - name: identity-headers
+        config:
+          # Rôles métier transmis au backend ; les autres rôles du token sont ignorés.
+          allowed_roles: [USER, MODERATEUR, ADMIN]
+
+      # -----------------------------------------------------------------------
+      # 4. Rate limiting (priorité 910) : 90 appels par minute et par utilisateur.
+      #    (Le cahier des charges demande 3 ; augmenté pour un usage confortable en développement.)
+      #    Au-delà : 429 Too Many Requests + en-tête Retry-After, backend non appelé.
+      # -----------------------------------------------------------------------
+      - name: rate-limiting
+        config:
+          minute: 90
+          # Compteurs en mémoire de Kong (une seule instance de gateway).
+          policy: local
+          # Un compteur par valeur de l'en-tête X_USER_ID, posé par identity-headers :
+          # donc un compteur par utilisateur.
+          limit_by: header
+          header_name: X_USER_ID
+
+consumers:
+  # Un « consumer » représente ici l'émetteur de confiance (le realm Keycloak), et non
+  # un utilisateur : tous les tokens du realm sont vérifiés avec ce même credential.
+  - username: keycloak-annonces
+    jwt_secrets:
+      # Doit être égal AU CARACTÈRE PRÈS au claim « iss » des tokens Keycloak.
+      - key: "http://localhost:8180/realms/annonces"
+        algorithm: RS256
+        # Clé PUBLIQUE de signature du realm (la clé privée reste dans Keycloak). Kong s'en sert
+        # pour vérifier que le token a bien été signé par Keycloak.
+        # Où la trouver : http://localhost:8180/realms/annonces → champ « public_key »,
+        # à encadrer par les lignes BEGIN/END ci-dessous, en lignes de 64 caractères.
+        # Ou dans la console : Realm settings → Keys → RS256 → Public key.
+        # ⚠ Si le realm est recréé (docker compose down -v), Keycloak génère une nouvelle clé :
+        # il faut alors recopier la nouvelle clé ici, sinon tous les appels répondent 401.
+        rsa_public_key: |
+          -----BEGIN PUBLIC KEY-----
+          MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqD9z1e01IqNV6tiq30WS
+          8536RydGPwhuU8m0HCpiAfFEsqx4i/jgp95MeeFAUfrV8+OdFP+JjqmW7Li5iEEC
+          37cQXccyIDirfD+zsQ/mf7lP1lpluXCbGwueQRaFX5R3KWFQB0/W6D/EpVEJHZNT
+          di6abdOu51Ohg3AKAsnDVDfs+fzloBB98lcVvedXdkRxld4CWzjp2HhfgVmHRQ7z
+          NhTZCjJsmHeLNBF5QeYXS+3f9+e0qHxt7eaDGgVRC33RX7LxJxFbWaApRKOkMcjq
+          gL6/luwxWEHauqGexzUvEtvM59VMJ9WGhByUNQ8fl7/Dd/dDPB5uyPfOkL/jyIZl
+          cQIDAQAB
+          -----END PUBLIC KEY-----

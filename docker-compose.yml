@@ -1,5 +1,10 @@
 # =============================================================================
-# Services de PetitesAnnonces : PostgreSQL, Keycloak, backend et frontend.
+# Services de PetitesAnnonces (cahier des charges § 3 et § 6.2) :
+#   frontend  Angular servi par Nginx        http://localhost:4200
+#   gateway   Kong, point d'entrée de l'API  http://localhost:8080/api/…
+#   keycloak  gestion des comptes et tokens  http://localhost:8180/admin
+#   backend   API Spring Boot                non exposé (joignable via la gateway)
+#   postgres  bases keycloak et annonces     non exposé
 #
 # Commandes (à la racine du projet) :
 #   docker compose up -d --wait     démarre les services et attend qu'ils soient prêts
@@ -21,6 +26,16 @@
 # Nom du projet : préfixe des conteneurs, du réseau et du volume (petitesannonces-postgres-1…).
 name: petitesannonces
 
+# Deux réseaux Docker (§ 3.1) :
+#  - public   : services que le navigateur atteint par un port publié (frontend, gateway, keycloak) ;
+#  - internal : réseau privé sans accès extérieur (internal: true) où vivent backend et postgres.
+#    gateway et keycloak sont sur les deux : la gateway pour joindre le backend, keycloak pour
+#    joindre sa base. Le navigateur ne peut donc JAMAIS appeler le backend directement.
+networks:
+  public:
+  internal:
+    internal: true
+
 services:
   # ---------------------------------------------------------------------------
   # PostgreSQL 16 : bases « keycloak » et « annonces » (créées par postgres/init.sql)
@@ -41,6 +56,7 @@ services:
       - postgres-data:/var/lib/postgresql/data
       # Script d'initialisation, monté en lecture seule (:ro).
       - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks: [internal]
     # Pas de « ports » : la base n'est joignable que par les autres conteneurs (backend,
     # keycloak), sous le nom « postgres ». Elle n'est pas exposée sur ta machine.
     # Vérification de l'état du service, utilisée par « depends_on » et « --wait ».
@@ -62,7 +78,9 @@ services:
     image: quay.io/keycloak/keycloak:26.8.1
     restart: unless-stopped
     # start-dev : mode développement (HTTP autorisé, caches simplifiés). En production : « start ».
-    command: ["start-dev"]
+    # --import-realm : importe keycloak/realm-annonces.json au démarrage, SI le realm n'existe
+    # pas encore dans la base (§ 6.4). Voir keycloak/README.md.
+    command: ["start-dev", "--import-realm"]
     environment:
       # Base de données de Keycloak : la base « keycloak » du service postgres.
       # « postgres » est le nom du service : Docker Compose le résout en adresse réseau.
@@ -79,10 +97,22 @@ services:
       # Compte administrateur créé au premier démarrage (realm « master »).
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME:-kcadmin}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD:-dev-kcadmin}
+      # Valeurs des placeholders ${…} de realm-annonces.json, lues dans le fichier .env
+      # (cp .env.example .env). « :? » : Compose refuse de démarrer si la variable manque.
+      REALM_PWD_ALICE: ${REALM_PWD_ALICE:?définir dans .env}
+      REALM_PWD_BOB: ${REALM_PWD_BOB:?définir dans .env}
+      REALM_PWD_MODO: ${REALM_PWD_MODO:?définir dans .env}
+      REALM_PWD_ADMIN: ${REALM_PWD_ADMIN:?définir dans .env}
+      REALM_RSA_PRIVATE_KEY: ${REALM_RSA_PRIVATE_KEY:?lancer scripts/gen-keys.sh}
+      REALM_RSA_CERTIFICATE: ${REALM_RSA_CERTIFICATE:?lancer scripts/gen-keys.sh}
+    volumes:
+      # Fichier du realm, monté en lecture seule dans le dossier d'import de Keycloak.
+      - ./keycloak/realm-annonces.json:/opt/keycloak/data/import/realm-annonces.json:ro
     ports:
       # Port 8180 de ta machine → port 8080 du conteneur ; 127.0.0.1 : accessible depuis ta
       # machine uniquement.
       - "127.0.0.1:8180:8080"
+    networks: [public, internal]
     # Keycloak ne démarre qu'une fois PostgreSQL déclaré en bonne santé.
     depends_on:
       postgres:
@@ -104,19 +134,24 @@ services:
       start_period: 30s
 
   # ---------------------------------------------------------------------------
-  # Backend Spring Boot (API : http://localhost:8081/api/…)
+  # Backend Spring Boot : réseau internal uniquement, AUCUN port publié (§ 2 et § 3.1).
+  # Seule la gateway l'appelle, avec les en-têtes X_USER_ID / X_ROLE_ID.
   # ---------------------------------------------------------------------------
   backend:
-    # Image construite à partir de backend/Dockerfile.
+    # En local : construite à partir de backend/Dockerfile (docker compose up --build).
+    # Sur la VM : téléchargée depuis Docker Hub (docker compose pull), poussée par la CI/CD.
     build: ./backend
+    image: ${DOCKERHUB_USERNAME:-local}/petitesannonces-backend:${IMAGE_TAG:-latest}
     restart: unless-stopped
     # Variables lues par application.yml.
     environment:
       # « postgres » : nom du service PostgreSQL ci-dessus.
       DB_HOST: postgres
       DB_PASSWORD: ${ANNONCES_DB_PASSWORD:-dev-annonces-db}
-    ports:
-      - "127.0.0.1:8081:8081"
+      # DEBUG : chaque requête affiche dans les logs les en-têtes reçus de la gateway (§ 6.7).
+      # Voir : docker compose logs -f backend
+      SECURITY_LOG_LEVEL: DEBUG
+    networks: [internal]
     depends_on:
       postgres:
         condition: service_healthy
@@ -129,21 +164,66 @@ services:
       start_period: 30s
 
   # ---------------------------------------------------------------------------
+  # Gateway Kong OSS en mode DB-less (§ 6.5) : seul point d'entrée de l'API.
+  # Vérifie le token, le remplace par X_USER_ID / X_ROLE_ID, limite à 3 appels/minute.
+  # ---------------------------------------------------------------------------
+  gateway:
+    # Image officielle, utilisée sans construction : la configuration est montée en volume.
+    image: kong:3.9.4
+    restart: unless-stopped
+    environment:
+      # DB-less : pas de base de données, configuration lue dans le fichier ci-dessous.
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /kong/kong.yml
+      # Plugins activés : ceux fournis avec Kong (« bundled ») + notre plugin Lua.
+      KONG_PLUGINS: bundled,identity-headers
+      # Où Lua cherche les plugins : « kong.plugins.identity-headers » correspond au dossier
+      # /usr/local/kong/custom/kong/plugins/identity-headers (monté ci-dessous).
+      KONG_LUA_PACKAGE_PATH: /usr/local/kong/custom/?.lua;;
+      # Port du proxy (celui qui reçoit les appels du front).
+      KONG_PROXY_LISTEN: 0.0.0.0:8000
+      # API d'administration de Kong : limitée au conteneur lui-même, jamais publiée (§ 2).
+      KONG_ADMIN_LISTEN: 127.0.0.1:8001
+    volumes:
+      - ./kong/kong.yml:/kong/kong.yml:ro
+      - ./kong/plugins/identity-headers:/usr/local/kong/custom/kong/plugins/identity-headers:ro
+    ports:
+      # Port 8080 de ta machine → port 8000 du proxy Kong (§ 3.1).
+      - "127.0.0.1:8080:8000"
+    # public : joignable par le navigateur ; internal : pour joindre le backend.
+    networks: [public, internal]
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      # Commande fournie par Kong : vérifie que Kong fonctionne.
+      test: ["CMD", "kong", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  # ---------------------------------------------------------------------------
   # Frontend Angular servi par Nginx (application : http://localhost:4200)
   # ---------------------------------------------------------------------------
   frontend:
-    # Image construite à partir de frontend/Dockerfile.
+    # Même principe que le backend : construite en local, téléchargée sur la VM.
     build: ./frontend
+    image: ${DOCKERHUB_USERNAME:-local}/petitesannonces-frontend:${IMAGE_TAG:-latest}
     restart: unless-stopped
     # Écrites dans /config.json au démarrage : URLs vues par le NAVIGATEUR.
     environment:
       KEYCLOAK_URL: http://localhost:8180
+      # Le front appelle l'API UNIQUEMENT via la gateway Kong (jamais le backend directement).
       GATEWAY_URL: http://localhost:8080
     ports:
       # Port 4200 de ta machine → port 8080 de Nginx dans le conteneur.
       - "127.0.0.1:4200:8080"
+    networks: [public]
     depends_on:
       keycloak:
+        condition: service_healthy
+      gateway:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/"]
