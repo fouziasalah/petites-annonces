@@ -44,8 +44,8 @@ for var in POSTGRES_PASSWORD KEYCLOAK_DB_PASSWORD ANNONCES_DB_PASSWORD KC_BOOTST
     set_env "$OUT" "$var" "$(random_secret 24)"
 done
 
-# Nouvelle paire RSA ; KONG_FILE=/dev/null : on ne touche pas au kong.yml local (clé de dev).
-KONG_FILE=/dev/null bash "$ROOT_DIR/scripts/gen-keys.sh" "$OUT" > /dev/null
+# Nouvelle paire RSA, différente de la clé de dev publiée dans .env.example.
+bash "$ROOT_DIR/scripts/gen-keys.sh" "$OUT" > /dev/null
 
 echo "→ $OUT créé."
 echo "   Mots de passe des comptes : grep -E 'KC_BOOTSTRAP|REALM_PWD' $OUT"

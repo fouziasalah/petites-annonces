@@ -1,0 +1,106 @@
+# =============================================================================
+# Configuration déclarative de Kong (mode DB-less) — TOUTE la config de la gateway.
+#
+# Les ${VARIABLES} sont remplacées au démarrage du conteneur par kong/render-config.sh
+# à partir de .env (une seule source de vérité, identique en local et sur la VM).
+#
+# Ordre d'exécution des plugins = PRIORITÉ décroissante (fixée par chaque plugin) :
+#   cors (2000) → jwt (1450) → identity-headers (1000) → rate-limiting (910)
+#   - cors d'abord : le preflight OPTIONS reçoit sa réponse sans authentification
+#     ni décompte (RL-05) ;
+#   - jwt avant identity-headers : on ne lit que des tokens dont la signature est vérifiée ;
+#   - identity-headers avant rate-limiting : le compteur s'indexe sur le X_USER_ID
+#     issu du token, jamais sur une valeur fournie par le client.
+# =============================================================================
+_format_version: "3.0"
+_transform: true
+
+services:
+  - name: annonces-backend
+    # Nom DNS du conteneur sur le réseau Docker « internal ».
+    url: http://backend:8081
+    connect_timeout: 5000
+    read_timeout: 30000
+    write_timeout: 30000
+    routes:
+      - name: api
+        paths:
+          - /api
+        # Le backend expose lui-même ses endpoints sous /api : on ne retire pas le préfixe.
+        strip_path: false
+        protocols: [http, https]
+
+    plugins:
+      # -----------------------------------------------------------------------
+      # CORS : le front (origine A) appelle la gateway (origine B).
+      # -----------------------------------------------------------------------
+      - name: cors
+        config:
+          # Une seule origine autorisée : http://evil.local ne reçoit pas
+          # d'Access-Control-Allow-Origin, le navigateur bloque la réponse (GW-09).
+          origins:
+            - "${FRONT_PUBLIC_URL}"
+          methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+          # Content-Type obligatoire : un POST/PUT JSON déclenche un preflight qui
+          # l'annonce dans Access-Control-Request-Headers.
+          headers: [Authorization, Content-Type]
+          # Sans ça, le JavaScript du front ne peut pas LIRE ces en-têtes de réponse.
+          exposed_headers: [Retry-After, Location]
+          credentials: false
+          max_age: 600
+          preflight_continue: false
+
+      # -----------------------------------------------------------------------
+      # JWT : authentifie le token (plugin OSS, sans JWKS → clé publique figée).
+      # -----------------------------------------------------------------------
+      - name: jwt
+        config:
+          # Le claim « iss » désigne le credential : sa « key » doit lui être égale
+          # au caractère près. Un token d'un autre realm n'a pas de credential → 401.
+          key_claim_name: iss
+          # « exp » est vérifié : token expiré → 401 (GW-03).
+          claims_to_verify: [exp]
+          # Le preflight ne porte jamais de token : ne pas l'authentifier.
+          run_on_preflight: false
+          header_names: [authorization]
+          # Par défaut Kong accepte aussi ?jwt=<token> dans l'URL : le token
+          # continuerait alors jusqu'au backend dans la query string. Désactivé.
+          uri_param_names: []
+          cookie_names: []
+
+      # -----------------------------------------------------------------------
+      # Plugin maison : token validé → headers d'identité (kong/plugins/identity-headers).
+      # -----------------------------------------------------------------------
+      - name: identity-headers
+        config:
+          allowed_roles: [USER, MODERATEUR, ADMIN]
+          # Bonus : le token doit avoir été émis POUR notre front.
+          expected_azp: annonces-front
+
+      # -----------------------------------------------------------------------
+      # Rate limiting : 3 appels par minute et par utilisateur.
+      # -----------------------------------------------------------------------
+      - name: rate-limiting
+        config:
+          minute: 3
+          # Compteurs en mémoire partagée de Kong (une seule instance de gateway).
+          policy: local
+          # Clé du compteur = valeur de X_USER_ID posée par identity-headers.
+          limit_by: header
+          header_name: X_USER_ID
+          error_code: 429
+          error_message: "Trop de requêtes : 3 appels par minute maximum."
+          # Si le stockage des compteurs échoue, on laisse passer plutôt que tout bloquer.
+          fault_tolerant: true
+
+consumers:
+  # Un consumer représente ici l'ÉMETTEUR de confiance (le realm Keycloak),
+  # pas un utilisateur : tous les utilisateurs du realm partagent ce credential.
+  - username: keycloak-annonces
+    jwt_secrets:
+      - key: "${KC_PUBLIC_URL}/realms/annonces"
+        algorithm: RS256
+        rsa_public_key: |
+          -----BEGIN PUBLIC KEY-----
+          ${REALM_RSA_PUBLIC_KEY}
+          -----END PUBLIC KEY-----

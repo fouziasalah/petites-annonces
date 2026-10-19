@@ -106,3 +106,76 @@ services:
       timeout: 5s
       retries: 15
       start_period: 30s
+
+  # ---------------------------------------------------------------------------
+  # Backend Spring Boot : réseau internal UNIQUEMENT, aucun port publié.
+  # Seule la gateway peut l'appeler (DEP-02).
+  # ---------------------------------------------------------------------------
+  backend:
+    build: ./backend
+    # En local : construite par --build. Sur la VM : tirée de Docker Hub (pull, --no-build).
+    image: ${DOCKERHUB_USERNAME:-local}/petitesannonces-backend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/annonces
+      SPRING_DATASOURCE_USERNAME: annonces
+      SPRING_DATASOURCE_PASSWORD: ${ANNONCES_DB_PASSWORD:?}
+      # DEBUG : trace des headers reçus de Kong (GW-08).
+      SECURITY_LOG_LEVEL: ${SECURITY_LOG_LEVEL:-DEBUG}
+    networks: [internal]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # wget est fourni par busybox dans l'image Alpine ; /actuator/health n'exige pas d'identité.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8081/actuator/health | grep -q UP"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  # ---------------------------------------------------------------------------
+  # Gateway Kong OSS, DB-less : seul point d'entrée de l'API.
+  # ---------------------------------------------------------------------------
+  gateway:
+    image: kong:3.9.4
+    restart: unless-stopped
+    # Avant de lancer Kong, on produit la config finale à partir de kong/kong.yml
+    # et de .env (URLs, clé publique du realm), puis on rend la main au script
+    # de démarrage officiel de l'image.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - /kong-src/render-config.sh /kong-src/kong.yml /tmp/kong.yml && exec /docker-entrypoint.sh kong docker-start
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /tmp/kong.yml
+      # bundled = plugins officiels OSS ; identity-headers = notre plugin Lua.
+      KONG_PLUGINS: bundled,identity-headers
+      # Le plugin est cherché sous kong.plugins.identity-headers.* : ce chemin
+      # Lua fait correspondre ce nom au dossier monté ci-dessous.
+      KONG_LUA_PACKAGE_PATH: /usr/local/kong/custom/?.lua;;
+      KONG_PROXY_LISTEN: 0.0.0.0:8000
+      # Admin API limitée à la boucle locale DU CONTENEUR et jamais publiée (GW-10).
+      KONG_ADMIN_LISTEN: 127.0.0.1:8001
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      # Lus par render-config.sh
+      FRONT_PUBLIC_URL: ${FRONT_PUBLIC_URL:?}
+      KC_PUBLIC_URL: ${KC_PUBLIC_URL:?}
+      REALM_RSA_PUBLIC_KEY: ${REALM_RSA_PUBLIC_KEY:?lancer scripts/gen-keys.sh}
+    volumes:
+      - ./kong:/kong-src:ro
+      - ./kong/plugins/identity-headers:/usr/local/kong/custom/kong/plugins/identity-headers:ro
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:8080:8000"
+    networks: [public, internal]
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
