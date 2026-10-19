@@ -1,0 +1,40 @@
+# Configuration du backend. Les valeurs sensibles arrivent par variables d'environnement
+# (SPRING_DATASOURCE_URL, SPRING_DATASOURCE_USERNAME, SPRING_DATASOURCE_PASSWORD) via docker-compose.
+spring:
+  application:
+    name: petitesannonces-backend
+  datasource:
+    url: jdbc:postgresql://localhost:5432/annonces
+    username: annonces
+  jpa:
+    # Pas de session Hibernate ouverte pendant le rendu HTTP : les accès base restent dans les services.
+    open-in-view: false
+    hibernate:
+      # Le schéma appartient à Flyway ; Hibernate se contente de vérifier qu'il correspond aux entités.
+      ddl-auto: validate
+  jackson:
+    default-property-inclusion: non_null
+  # Messages de validation en français quel que soit l'Accept-Language du client.
+  web:
+    locale: fr
+    locale-resolver: fixed
+
+server:
+  port: 8081
+  shutdown: graceful
+
+# Seul /actuator/health est exposé (healthcheck Docker). Kong ne route que /api :
+# l'actuator n'est donc jamais joignable depuis l'extérieur.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+
+logging:
+  level:
+    # DEBUG = trace des headers d'identité reçus de Kong (critère GW-08).
+    fr.petitesannonces.security: ${SECURITY_LOG_LEVEL:INFO}
