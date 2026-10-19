@@ -2,9 +2,9 @@
 # Déploiement continu : images Docker Hub → VM (Docker Compose + Caddy HTTPS).
 #
 # Déclencheurs :
-#   - automatique : quand le workflow « CI » réussit sur main ;
-#   - manuel (Actions → CD → Run workflow) : redéploiement ou ROLLBACK en
-#     indiquant le tag d'une image déjà publiée (SHA court d'un commit).
+#   - manuel UNIQUEMENT (Actions → CD → Run workflow) : déploiement, ou ROLLBACK en
+#     indiquant le tag d'une image déjà publiée (SHA court d'un commit) ;
+#   - automatique après la CI : DÉSACTIVÉ (décommenter « workflow_run » pour le réactiver).
 #
 # Secrets requis (voir docs/deploiement.md) : DOCKERHUB_USERNAME, DOCKERHUB_TOKEN,
 # VM_HOST, VM_USER, VM_SSH_PORT, VM_SSH_KEY. Les mots de passe de production ne sont
@@ -13,10 +13,11 @@
 name: CD
 
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
-    branches: [main]
+  # Déploiement automatique après une CI verte sur main : désactivé.
+  # workflow_run:
+  #   workflows: [CI]
+  #   types: [completed]
+  #   branches: [main]
   workflow_dispatch:
     inputs:
       image_tag:
