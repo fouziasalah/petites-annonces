@@ -127,13 +127,40 @@ Dépôt → *Settings* → *Secrets and variables* → *Actions* → **New repos
 Puis *Settings* → *Environments* → **New environment** `production` (tu peux y activer
 *Required reviewers* pour valider chaque déploiement à la main).
 
+Enfin, l'interrupteur : *Settings* → *Secrets and variables* → *Actions* → onglet **Variables** →
+**New repository variable** `DEPLOY_ENABLED` = `true`. Tant qu'elle n'existe pas, le workflow CD
+est ignoré (la CI tourne normalement).
+
 ## 6. 🤖 Ce que fait la pipeline
 
-*(workflows écrits en phase 9 — cette section sera complétée)*
+**`ci.yml`** — à chaque push sur `main` et chaque pull request :
+
+| Job | Ce qu'il vérifie |
+|---|---|
+| backend | `./mvnw verify` : tests unitaires + intégration (Testcontainers PostgreSQL) |
+| frontend | `ng lint`, `ng test`, `ng build --configuration production` |
+| gateway | `kong config parse` (Kong valide `kong.yml` et le schéma du plugin) + `luacheck` |
+| compose | `docker compose config` (local et surcharge VM) |
+| e2e | les 5 services démarrés, puis `scripts/test-gateway.sh` (22 vérifications GW/RL) |
+
+**`cd.yml`** — quand la CI réussit sur `main` :
+
+1. **build-push** : construit les images backend et frontend, les pousse sur Docker Hub avec deux
+   tags : le SHA court du commit (immuable, sert au rollback) et `latest`.
+2. **deploy** (environnement `production`, un seul déploiement à la fois) :
+   - SSH avec la clé dédiée, empreinte du serveur vérifiée (`VM_KNOWN_HOSTS`) ;
+   - copie de `docker-compose*.yml`, `kong/`, `keycloak/`, `postgres/`, `caddy/` dans
+     `/opt/petitesannonces` (pas de code source sur la VM : il est dans les images) ;
+   - écriture du `.env` (droits 600) depuis `ENV_FILE`, avec `IMAGE_TAG=<sha>` ;
+   - `docker compose pull` puis `up -d --no-build --remove-orphans --wait` ;
+   - smoke tests HTTPS : `config.json` du front, `issuer` de Keycloak, `401` de la gateway sans token ;
+   - `docker image prune -f`.
 
 ## 7. Rollback
 
-Relancer le workflow `cd.yml` (*Run workflow*) avec le tag d'image précédent (SHA court du commit).
+*Actions* → *CD* → *Run workflow* → renseigner `image_tag` avec le SHA court d'un déploiement
+précédent (visible dans l'historique des runs ou sur Docker Hub). Le job de build est sauté et
+la VM redémarre sur ces images.
 
 ## 8. Points d'attention
 

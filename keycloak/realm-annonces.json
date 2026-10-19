@@ -49,7 +49,7 @@
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": false,
       "frontchannelLogout": true,
-      "fullScopeAllowed": true,
+      "fullScopeAllowed": false,
       "rootUrl": "${FRONT_PUBLIC_URL}",
       "baseUrl": "/",
       "redirectUris": ["${FRONT_PUBLIC_URL}/*"],
@@ -60,6 +60,12 @@
         "oauth2.device.authorization.grant.enabled": "false",
         "oidc.ciba.grant.enabled": "false"
       }
+    }
+  ],
+  "scopeMappings": [
+    {
+      "client": "annonces-front",
+      "roles": ["USER", "MODERATEUR", "ADMIN"]
     }
   ],
   "users": [

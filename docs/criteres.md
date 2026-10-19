@@ -5,11 +5,11 @@ Légende : ⬜ à faire · 🟡 en cours · ✅ démontré
 ## Déploiement (DEP)
 | ID | Critère | Démonstration | Statut |
 |---|---|---|---|
-| DEP-01 | `.env` copié de `.env.example`, `up -d --build` → 5 conteneurs `healthy` < 3 min | `docker compose ps` | ⬜ |
+| DEP-01 | `.env` copié de `.env.example`, `up -d --build` → 5 conteneurs `healthy` < 3 min | `docker compose ps` | ✅ |
 | DEP-02 | 8081 et 5432 injoignables depuis l'hôte | `curl localhost:8081`, `nc -z localhost 5432` | ✅ |
 | DEP-03 | Realm `annonces` importé (clients, rôles, users) | console `http://localhost:8180/admin` | ✅ |
-| DEP-04 | Données et config Keycloak conservées après `down`/`up` | créer une annonce, `down`, `up`, relire | ⬜ |
-| DEP-05 | Aucun secret commité | `git grep`, revue de `.env.example` | ⬜ |
+| DEP-04 | Données et config Keycloak conservées après `down`/`up` | créer une annonce, `down`, `up`, relire | ✅ |
+| DEP-05 | Aucun secret commité | `git grep`, revue de `.env.example` | ✅ |
 
 ## Keycloak et PKCE (KC)
 | ID | Critère | Démonstration | Statut |
@@ -27,7 +27,7 @@ Légende : ⬜ à faire · 🟡 en cours · ✅ démontré
 | FR-01 | Bearer uniquement vers la gateway | DevTools réseau | ✅ |
 | FR-02 | Aucun token en localStorage | DevTools Application | ✅ |
 | FR-03 | `alice` ne voit pas Modération/Catégories, `/moderation` redirige | navigateur | ✅ |
-| FR-04 | Token renouvelé après 5 min sans login | navigateur (attendre) | ⬜ |
+| FR-04 | Token renouvelé après 5 min sans login | navigateur (attendre) | ✅ |
 | FR-05 | 429 → message avec `Retry-After` | navigateur | ✅ |
 | FR-06 | 403 → « accès refusé » sans déconnexion | navigateur | ✅ |
 

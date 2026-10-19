@@ -1,0 +1,181 @@
+# =============================================================================
+# Déploiement continu : images Docker Hub → VM (Docker Compose + Caddy HTTPS).
+#
+# Déclencheurs :
+#   - automatique : quand le workflow « CI » réussit sur main ;
+#   - manuel (Actions → CD → Run workflow) : redéploiement ou ROLLBACK en
+#     indiquant le tag d'une image déjà publiée (SHA court d'un commit).
+#
+# Secrets requis (voir docs/deploiement.md) : DOCKERHUB_USERNAME, DOCKERHUB_TOKEN,
+# VM_HOST, VM_USER, VM_SSH_PORT, VM_SSH_KEY, VM_KNOWN_HOSTS, ENV_FILE.
+# =============================================================================
+name: CD
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Tag d'image existant à déployer (rollback). Vide = construire le commit courant."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  DEPLOY_DIR: /opt/petitesannonces
+
+jobs:
+  build-push:
+    name: Build et push des images
+    # Sur workflow_run, ne rien faire si la CI a échoué.
+    # DEPLOY_ENABLED (Settings → Secrets and variables → Actions → Variables) : interrupteur
+    # général, à passer à « true » une fois les secrets et la VM prêts.
+    if: >-
+      vars.DEPLOY_ENABLED == 'true' && (
+        (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+        (github.event_name == 'workflow_dispatch' && inputs.image_tag == ''))
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.vars.outputs.tag }}
+    steps:
+      # workflow_run s'exécute sur la dernière version de main : on se place
+      # explicitement sur le commit que la CI a validé.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - id: vars
+        run: echo "tag=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v4
+
+      # Token d'accès Docker Hub (révocable, droits limités), jamais le mot de passe.
+      - uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - id: meta-backend
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/petitesannonces-backend
+          tags: |
+            type=raw,value=${{ steps.vars.outputs.tag }}
+            type=raw,value=latest
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: ./backend
+          push: true
+          tags: ${{ steps.meta-backend.outputs.tags }}
+          labels: ${{ steps.meta-backend.outputs.labels }}
+          # Cache des couches dans GitHub Actions : les builds suivants ne refont
+          # que ce qui a changé (dépendances Maven réutilisées).
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      - id: meta-frontend
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/petitesannonces-frontend
+          tags: |
+            type=raw,value=${{ steps.vars.outputs.tag }}
+            type=raw,value=latest
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: ./frontend
+          push: true
+          tags: ${{ steps.meta-frontend.outputs.tags }}
+          labels: ${{ steps.meta-frontend.outputs.labels }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+  deploy:
+    name: Déploiement sur la VM
+    needs: build-push
+    # S'exécute après un build réussi, OU directement pour un rollback manuel.
+    if: >-
+      always() && vars.DEPLOY_ENABLED == 'true' &&
+      (needs.build-push.result == 'success' ||
+       (github.event_name == 'workflow_dispatch' && inputs.image_tag != ''))
+    runs-on: ubuntu-latest
+    # Environnement GitHub « production » : on peut y exiger une validation manuelle.
+    environment: production
+    # Jamais deux déploiements en même temps sur la VM ; on n'annule pas celui en cours.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    env:
+      IMAGE_TAG: ${{ inputs.image_tag || needs.build-push.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Configuration SSH (clé dédiée + empreinte du serveur vérifiée)
+        env:
+          VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+          VM_KNOWN_HOSTS: ${{ secrets.VM_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$VM_SSH_KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
+          # known_hosts fourni : pas de StrictHostKeyChecking=no (attaque de l'homme du milieu).
+          printf '%s\n' "$VM_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<EOF
+          Host vm
+            HostName ${{ secrets.VM_HOST }}
+            User ${{ secrets.VM_USER }}
+            Port ${{ secrets.VM_SSH_PORT || '22' }}
+            IdentityFile ~/.ssh/id_deploy
+            IdentitiesOnly yes
+          EOF
+
+      - name: Préparation du .env de production
+        env:
+          ENV_FILE: ${{ secrets.ENV_FILE }}
+        run: |
+          umask 077
+          printf '%s\n' "$ENV_FILE" | sed '/^IMAGE_TAG=/d' > "$RUNNER_TEMP/deploy.env"
+          echo "IMAGE_TAG=$IMAGE_TAG" >> "$RUNNER_TEMP/deploy.env"
+          domain="$(sed -n 's/^PUBLIC_DOMAIN=//p' "$RUNNER_TEMP/deploy.env")"
+          test -n "$domain" || { echo "PUBLIC_DOMAIN absent de ENV_FILE"; exit 1; }
+          echo "PUBLIC_DOMAIN=$domain" >> "$GITHUB_ENV"
+
+      - name: Copie des fichiers de déploiement
+        run: |
+          ssh vm "mkdir -p $DEPLOY_DIR"
+          # Uniquement ce qui est monté dans les conteneurs : pas de code source sur la VM.
+          tar czf - docker-compose.yml docker-compose.vm.yml kong keycloak postgres caddy \
+            | ssh vm "tar xzf - -C $DEPLOY_DIR"
+          ssh vm "umask 077 && cat > $DEPLOY_DIR/.env" < "$RUNNER_TEMP/deploy.env"
+
+      - name: Pull et redémarrage (tag ${{ env.IMAGE_TAG }})
+        run: |
+          ssh vm "cd $DEPLOY_DIR && \
+            docker compose -f docker-compose.yml -f docker-compose.vm.yml pull --quiet && \
+            docker compose -f docker-compose.yml -f docker-compose.vm.yml up -d --no-build --remove-orphans --wait --wait-timeout 300"
+
+      - name: Smoke tests
+        run: |
+          set -x
+          # Le front répond et sert sa configuration runtime
+          curl -fsS --retry 10 --retry-delay 6 --retry-all-errors "https://app.$PUBLIC_DOMAIN/config.json"
+          # Keycloak publie le realm avec le bon émetteur
+          curl -fsS "https://auth.$PUBLIC_DOMAIN/realms/annonces/.well-known/openid-configuration" \
+            | grep -q "\"issuer\":\"https://auth.$PUBLIC_DOMAIN/realms/annonces\""
+          # La gateway refuse un appel sans token
+          test "$(curl -s -o /dev/null -w '%{http_code}' "https://api.$PUBLIC_DOMAIN/api/annonces")" = 401
+
+      - name: Nettoyage des anciennes images
+        if: success()
+        run: ssh vm "docker image prune -f"
+
+      - name: État des services en cas d'échec
+        if: failure()
+        run: ssh vm "cd $DEPLOY_DIR && docker compose -f docker-compose.yml -f docker-compose.vm.yml ps && docker compose -f docker-compose.yml -f docker-compose.vm.yml logs --tail 80"

@@ -1,0 +1,48 @@
+# =============================================================================
+# Surcharge pour la VM — option B : exposition publique en HTTPS via Caddy.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.vm.yml up -d
+#
+# Les 5 services de la spec sont inchangés ; on ajoute seulement Caddy devant eux.
+# Les ports 4200/8080/8180 restent publiés sur 127.0.0.1 (BIND_ADDRESS) : ils ne
+# sont pas joignables depuis Internet, mais restent utilisables par tunnel SSH
+# (option A) pour le dépannage. Seuls 80 et 443 sont ouverts au public.
+#
+# Prérequis dans .env : PUBLIC_DOMAIN et les URLs https://app|api|auth.<domaine>
+# (générés par scripts/init-prod-env.sh <domaine>).
+# =============================================================================
+
+services:
+  caddy:
+    image: caddy:2.11.7-alpine
+    restart: unless-stopped
+    environment:
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?définir PUBLIC_DOMAIN dans .env (ex. 72-60-188-97.sslip.io)}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificats et clés ACME : à conserver, sinon Let's Encrypt est re-sollicité
+      # à chaque redémarrage (et ses quotas sont limités).
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [public]
+    depends_on:
+      frontend:
+        condition: service_healthy
+      gateway:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+
+  keycloak:
+    environment:
+      # Keycloak est derrière un reverse proxy TLS : il doit faire confiance aux
+      # en-têtes X-Forwarded-* de Caddy pour savoir que le client est en HTTPS.
+      KC_PROXY_HEADERS: xforwarded
+
+volumes:
+  caddy-data:
+  caddy-config:

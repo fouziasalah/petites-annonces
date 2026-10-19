@@ -1,0 +1,120 @@
+# =============================================================================
+# Intégration continue : à chaque push sur main et à chaque pull request.
+#   backend   → tests unitaires + intégration (Testcontainers)
+#   frontend  → lint, tests unitaires, build de production
+#   gateway   → validation de kong.yml par Kong lui-même + lint du plugin Lua
+#   compose   → validation des fichiers Compose (local et VM)
+#   e2e       → stack complète + scripts/test-gateway.sh (GW, RL)
+# Le déploiement (cd.yml) ne démarre que si ce workflow réussit sur main.
+# =============================================================================
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Moindre privilège : la CI ne fait que lire le dépôt.
+permissions:
+  contents: read
+
+# Un nouveau push annule l'exécution en cours sur la même branche.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (Maven + Testcontainers)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      # Docker est disponible sur ubuntu-latest : Testcontainers y lance PostgreSQL.
+      - run: ./mvnw -B verify
+      - name: Rapports de tests
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: rapports-tests-backend
+          path: |
+            backend/target/surefire-reports/
+            backend/target/failsafe-reports/
+          if-no-files-found: ignore
+
+  frontend:
+    name: Frontend (lint, tests, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npx ng lint
+      - run: npx ng test --watch=false
+      - run: npx ng build --configuration production
+
+  gateway:
+    name: Gateway (kong config parse, luacheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Rendu de kong.yml avec les valeurs de développement
+        run: |
+          set -a; . ./.env.example; set +a
+          sh kong/render-config.sh kong/kong.yml "$RUNNER_TEMP/kong.yml"
+      - name: Validation par Kong (schémas des plugins, dont identity-headers)
+        run: |
+          docker run --rm \
+            -e KONG_DATABASE=off \
+            -e KONG_PLUGINS=bundled,identity-headers \
+            -e "KONG_LUA_PACKAGE_PATH=/usr/local/kong/custom/?.lua;;" \
+            -v "$PWD/kong/plugins/identity-headers:/usr/local/kong/custom/kong/plugins/identity-headers:ro" \
+            -v "$RUNNER_TEMP/kong.yml:/tmp/kong.yml:ro" \
+            kong:3.9.4 kong config parse /tmp/kong.yml
+      - name: Lint du plugin Lua
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq lua-check
+          luacheck kong/plugins
+
+  compose:
+    name: Fichiers Compose
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: cp .env.example .env
+      - run: docker compose config --quiet
+      - name: Surcharge VM (option B)
+        run: PUBLIC_DOMAIN=exemple.sslip.io docker compose -f docker-compose.yml -f docker-compose.vm.yml config --quiet
+
+  e2e:
+    name: E2E gateway (stack complète)
+    needs: [backend, frontend, gateway, compose]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Valeurs de développement (dont la paire RSA de test publique) : jamais de secret ici.
+      - run: cp .env.example .env
+      - name: Démarrage des 5 services
+        run: docker compose up -d --build --wait --wait-timeout 300
+      - name: Tests GW et RL (tokens PKCE réels + JWT forgés)
+        run: bash scripts/test-gateway.sh
+      - name: Logs en cas d'échec
+        if: failure()
+        run: docker compose logs --tail 200
+      - name: Arrêt et nettoyage
+        if: always()
+        run: docker compose down -v
