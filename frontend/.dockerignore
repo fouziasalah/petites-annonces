@@ -1,0 +1,11 @@
+# Fichiers exclus de « COPY . . » dans le Dockerfile : inutiles à la compilation, ou recréés
+# dans l'image. Les exclure rend la construction plus rapide et l'image plus propre.
+node_modules/
+dist/
+.angular/
+coverage/
+.vscode/
+.idea/
+*.log
+Dockerfile
+.dockerignore

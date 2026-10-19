@@ -1,9 +1,26 @@
 # =============================================================================
 # Configuration de l'application, lue par Spring Boot au démarrage.
 #
-# Toute valeur peut être remplacée par une variable d'environnement : le nom de la
-# propriété en MAJUSCULES, avec « _ » à la place de « . ».
-# Exemple : spring.datasource.password  →  SPRING_DATASOURCE_PASSWORD=monMotDePasse
+# Les valeurs qui changent d'un environnement à l'autre viennent de VARIABLES
+# D'ENVIRONNEMENT, avec la syntaxe Spring :  ${NOM_VARIABLE:valeur_par_défaut}
+#   - si la variable NOM_VARIABLE existe, sa valeur est utilisée ;
+#   - sinon, la valeur après « : » est utilisée (valeurs prévues pour le développement local).
+#
+# Variables disponibles :
+#   DB_HOST             machine PostgreSQL                      (défaut : localhost)
+#   DB_PORT             port PostgreSQL                         (défaut : 5432)
+#   DB_NAME             nom de la base                          (défaut : annonces)
+#   DB_USERNAME         utilisateur de la base                  (défaut : annonces)
+#   DB_PASSWORD         mot de passe de la base                 (défaut : vide)
+#   SERVER_PORT         port HTTP de l'API                      (défaut : 8081)
+#   SECURITY_LOG_LEVEL  niveau des logs de sécurité             (défaut : INFO ; DEBUG pour voir
+#                       les en-têtes d'identité reçus)
+#
+# Exemples :
+#   Linux / Git Bash :  DB_PASSWORD=secret ./mvnw spring-boot:run
+#   Docker Compose   :  environment:
+#                         DB_HOST: postgres
+#                         DB_PASSWORD: ${DB_PASSWORD}
 # Les mots de passe ne sont donc jamais écrits dans ce fichier.
 # =============================================================================
 spring:
@@ -14,9 +31,9 @@ spring:
   # --- Connexion à la base PostgreSQL (driver JDBC org.postgresql, voir pom.xml) ---
   datasource:
     # Adresse de la base : jdbc:postgresql://<machine>:<port>/<nom de la base>.
-    url: jdbc:postgresql://localhost:5432/annonces
-    username: annonces
-    # Mot de passe : à fournir par la variable d'environnement SPRING_DATASOURCE_PASSWORD.
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:annonces}
+    username: ${DB_USERNAME:annonces}
+    password: ${DB_PASSWORD:}
 
   # --- JPA / Hibernate (dépendance spring-boot-starter-data-jpa) ---
   jpa:
@@ -46,7 +63,7 @@ spring:
 # --- Serveur web Tomcat (intégré à spring-boot-starter-web) ---
 server:
   # Port d'écoute HTTP de l'API.
-  port: 8081
+  port: ${SERVER_PORT:8081}
   # graceful : à l'arrêt, les requêtes en cours se terminent avant l'extinction.
   shutdown: graceful
 
@@ -66,5 +83,4 @@ management:
 logging:
   level:
     # Logs du package security. DEBUG affiche les en-têtes d'identité reçus à chaque requête.
-    # Valeur par défaut INFO, modifiable par la variable d'environnement SECURITY_LOG_LEVEL.
     fr.petitesannonces.security: ${SECURITY_LOG_LEVEL:INFO}

@@ -3,9 +3,12 @@ import { InjectionToken } from '@angular/core';
 /**
  * Configuration lue AU DÉMARRAGE dans /config.json, pas compilée dans le bundle.
  *
- * Pourquoi ? Une même image Docker sert en local (localhost) et sur la VM (sslip.io) :
- * seules les URLs changent. Le conteneur Nginx génère config.json à partir de ses
- * variables d'environnement (voir docker/30-config-json.sh).
+ * Pourquoi ? Une même image Docker sert dans tous les environnements : seules les URLs
+ * changent. D'où vient le fichier :
+ *  - en développement (ng serve) : public/config.json ;
+ *  - dans Docker : généré au démarrage du conteneur à partir des variables d'environnement
+ *    KEYCLOAK_URL, KEYCLOAK_REALM, KEYCLOAK_CLIENT_ID et GATEWAY_URL
+ *    (voir docker/40-generer-config.sh et le Dockerfile).
  */
 export interface AppConfig {
   /** URL publique de Keycloak, vue par le navigateur (ex. http://localhost:8180). */
