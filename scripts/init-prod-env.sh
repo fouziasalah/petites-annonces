@@ -33,10 +33,19 @@ set_env "$OUT" IMAGE_TAG latest
 set_env "$OUT" BIND_ADDRESS 127.0.0.1
 
 if [[ -n "$DOMAINE" ]]; then
+    # Option B : Caddy en HTTPS devant les services (ports 80/443 de la VM).
     set_env "$OUT" FRONT_PUBLIC_URL "https://app.$DOMAINE"
     set_env "$OUT" GATEWAY_PUBLIC_URL "https://api.$DOMAINE"
     set_env "$OUT" KC_PUBLIC_URL "https://auth.$DOMAINE"
     set_env "$OUT" PUBLIC_DOMAIN "$DOMAINE"
+    # Compose lit COMPOSE_FILE dans .env : ajoute la surcharge VM (Caddy).
+    set_env "$OUT" COMPOSE_FILE "docker-compose.yml:docker-compose.vm.yml"
+else
+    # Option A : tunnel SSH. URLs localhost inchangées (vues par le navigateur à
+    # travers le tunnel) ; ports de la VM décalés pour ne gêner aucune autre application.
+    set_env "$OUT" FRONT_HOST_PORT 14200
+    set_env "$OUT" GATEWAY_HOST_PORT 18080
+    set_env "$OUT" KC_HOST_PORT 18180
 fi
 
 for var in POSTGRES_PASSWORD KEYCLOAK_DB_PASSWORD ANNONCES_DB_PASSWORD KC_BOOTSTRAP_ADMIN_PASSWORD \

@@ -17,6 +17,8 @@ git push main ──► GitHub Actions
 | Dépôt GitHub | `github.com/fouziasalah/petites-annonces` (public) |
 | Images Docker Hub | `fouziasalahhhh/petitesannonces-backend`, `fouziasalahhhh/petitesannonces-frontend` |
 | VM | Ubuntu 24.04, `72.60.188.97`, dossier `/opt/petitesannonces`, connexion du robot en `root` |
+| Mode retenu | **Option A — tunnel SSH** : une autre application occupe déjà 80/443 sur la VM ; on n'y touche pas |
+| Ports sur la VM | `127.0.0.1:14200` (front), `127.0.0.1:18080` (Kong), `127.0.0.1:18180` (Keycloak) — rien de public |
 
 ## 1. Le problème « localhost » et les deux options
 
@@ -64,7 +66,8 @@ Aucune commande à taper sur la VM. Avant chaque déploiement, le CD exécute
 scripts/prepare-secrets.sh
 ```
 🤖 Crée la clé SSH du robot (`~/.ssh/petitesannonces_deploy`), `.env.prod` (mots de passe
-aléatoires, **nouvelle** paire RSA, URLs `https://…sslip.io`) et le dossier **`.secrets/`** avec un
+aléatoires, **nouvelle** paire RSA, URLs `localhost` et ports VM 14200/18080/18180 en option A ;
+URLs `https://…sslip.io` si l'on passe un domaine en argument) et le dossier **`.secrets/`** avec un
 fichier par secret GitHub. `.env.prod` et `.secrets/` sont ignorés par Git. Conserve `.env.prod`
 dans un gestionnaire de mots de passe : il contient les identifiants admin Keycloak.
 
@@ -101,6 +104,22 @@ ssh -i ~/.ssh/petitesannonces_deploy root@72.60.188.97 "echo OK"     # doit affi
 
 **3.6 Premier déploiement** — *Actions* → **CD** → *Run workflow* (champ `image_tag` vide).
 Ensuite, chaque push sur `main` dont la CI est verte est déployé automatiquement.
+
+**3.7 Accéder à l'application (option A)** — depuis ton PC, arrête d'abord la stack locale
+(`docker compose down`, elle utilise les mêmes ports), puis ouvre le tunnel et laisse ce terminal ouvert :
+```bash
+ssh -N -i ~/.ssh/petitesannonces_deploy \
+    -L 4200:127.0.0.1:14200 -L 8080:127.0.0.1:18080 -L 8180:127.0.0.1:18180 \
+    root@72.60.188.97
+```
+Puis, dans le navigateur : http://localhost:4200 (application) et http://localhost:8180/admin
+(console Keycloak, `kcadmin`, mot de passe : `grep KC_BOOTSTRAP_ADMIN_PASSWORD .env.prod`).
+Les mots de passe des comptes de test sont dans `.env.prod` (`REALM_PWD_*`).
+
+Pourquoi ça marche : le navigateur parle à `localhost:4200/8080/8180` comme en local ; ssh
+transporte chaque connexion, chiffrée, jusqu'aux ports 14200/18080/18180 de la VM. L'émetteur
+du token reste `http://localhost:8180/realms/annonces`, celui que Kong attend, et `localhost` est
+un contexte sécurisé pour le navigateur.
 
 ## 4. 🤖 Ce que fait la pipeline
 

@@ -143,12 +143,17 @@ jobs:
           umask 077
           printf '%s\n' "$ENV_FILE" | sed '/^IMAGE_TAG=/d' > "$RUNNER_TEMP/deploy.env"
           echo "IMAGE_TAG=$IMAGE_TAG" >> "$RUNNER_TEMP/deploy.env"
-          domain="$(sed -n 's/^PUBLIC_DOMAIN=//p' "$RUNNER_TEMP/deploy.env")"
-          test -n "$domain" || { echo "PUBLIC_DOMAIN absent de ENV_FILE"; exit 1; }
-          echo "PUBLIC_DOMAIN=$domain" >> "$GITHUB_ENV"
+          # Valeurs NON secrètes utiles aux étapes suivantes (mode, URLs, ports de la VM).
+          for var in PUBLIC_DOMAIN FRONT_PUBLIC_URL GATEWAY_PUBLIC_URL KC_PUBLIC_URL \
+                     FRONT_HOST_PORT GATEWAY_HOST_PORT KC_HOST_PORT; do
+            echo "$var=$(sed -n "s/^$var=//p" "$RUNNER_TEMP/deploy.env")" >> "$GITHUB_ENV"
+          done
 
       - name: Préparation de la VM (Docker, dossier, ports — idempotent)
-        run: ssh vm "DEPLOY_DIR=$DEPLOY_DIR bash -s" < scripts/vm-bootstrap.sh
+        run: |
+          ssh vm "DEPLOY_DIR=$DEPLOY_DIR PUBLIC_DOMAIN=$PUBLIC_DOMAIN \
+            FRONT_HOST_PORT=$FRONT_HOST_PORT GATEWAY_HOST_PORT=$GATEWAY_HOST_PORT KC_HOST_PORT=$KC_HOST_PORT \
+            bash -s" < scripts/vm-bootstrap.sh
 
       - name: Copie des fichiers de déploiement
         run: |
@@ -157,22 +162,35 @@ jobs:
             | ssh vm "tar xzf - -C $DEPLOY_DIR"
           ssh vm "umask 077 && cat > $DEPLOY_DIR/.env" < "$RUNNER_TEMP/deploy.env"
 
+      # Les fichiers Compose utilisés viennent de COMPOSE_FILE dans .env :
+      #   option A (tunnel) : docker-compose.yml seul ;
+      #   option B (HTTPS)  : docker-compose.yml + docker-compose.vm.yml (Caddy).
       - name: Pull et redémarrage (tag ${{ env.IMAGE_TAG }})
         run: |
           ssh vm "cd $DEPLOY_DIR && \
-            docker compose -f docker-compose.yml -f docker-compose.vm.yml pull --quiet && \
-            docker compose -f docker-compose.yml -f docker-compose.vm.yml up -d --no-build --remove-orphans --wait --wait-timeout 300"
+            docker compose pull --quiet && \
+            docker compose up -d --no-build --remove-orphans --wait --wait-timeout 300"
+
+      - name: Tunnel SSH vers la VM (option A uniquement)
+        if: env.PUBLIC_DOMAIN == ''
+        run: |
+          # Exactement ce que fait l'utilisateur pour accéder à l'application :
+          # localhost:4200/8080/8180 du runner → 127.0.0.1:<ports de la VM>.
+          ssh -f -N -o ExitOnForwardFailure=yes \
+            -L "4200:127.0.0.1:$FRONT_HOST_PORT" \
+            -L "8080:127.0.0.1:$GATEWAY_HOST_PORT" \
+            -L "8180:127.0.0.1:$KC_HOST_PORT" vm
 
       - name: Smoke tests
         run: |
           set -x
           # Le front répond et sert sa configuration runtime
-          curl -fsS --retry 10 --retry-delay 6 --retry-all-errors "https://app.$PUBLIC_DOMAIN/config.json"
-          # Keycloak publie le realm avec le bon émetteur
-          curl -fsS "https://auth.$PUBLIC_DOMAIN/realms/annonces/.well-known/openid-configuration" \
-            | grep -q "\"issuer\":\"https://auth.$PUBLIC_DOMAIN/realms/annonces\""
+          curl -fsS --retry 10 --retry-delay 6 --retry-all-errors "$FRONT_PUBLIC_URL/config.json"
+          # Keycloak publie le realm avec le bon émetteur (celui que Kong attend)
+          curl -fsS "$KC_PUBLIC_URL/realms/annonces/.well-known/openid-configuration" \
+            | grep -q "\"issuer\":\"$KC_PUBLIC_URL/realms/annonces\""
           # La gateway refuse un appel sans token
-          test "$(curl -s -o /dev/null -w '%{http_code}' "https://api.$PUBLIC_DOMAIN/api/annonces")" = 401
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$GATEWAY_PUBLIC_URL/api/annonces")" = 401
 
       - name: Nettoyage des anciennes images
         if: success()
@@ -180,4 +198,4 @@ jobs:
 
       - name: État des services en cas d'échec
         if: failure()
-        run: ssh vm "cd $DEPLOY_DIR && docker compose -f docker-compose.yml -f docker-compose.vm.yml ps && docker compose -f docker-compose.yml -f docker-compose.vm.yml logs --tail 80"
+        run: ssh vm "cd $DEPLOY_DIR && docker compose ps && docker compose logs --tail 80"

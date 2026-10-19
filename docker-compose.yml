@@ -6,6 +6,9 @@
 # Ports publiés (et RIEN d'autre) : 4200 (front), 8080 (Kong), 8180 (Keycloak).
 # Ils sont liés à ${BIND_ADDRESS} (127.0.0.1 par défaut) : sur une VM, Docker
 # contourne ufw, donc publier sur 0.0.0.0 exposerait réellement ces ports.
+# Sur la VM, *_HOST_PORT permet d'utiliser d'autres ports (14200/18080/18180)
+# pour cohabiter avec une autre application ; le tunnel SSH les ramène sur
+# localhost:4200/8080/8180 côté navigateur.
 # =============================================================================
 name: petitesannonces
 
@@ -86,7 +89,7 @@ services:
     volumes:
       - ./keycloak/realm-annonces.json:/opt/keycloak/data/import/realm-annonces.json:ro
     ports:
-      - "${BIND_ADDRESS:-127.0.0.1}:8180:8080"
+      - "${BIND_ADDRESS:-127.0.0.1}:${KC_HOST_PORT:-8180}:8080"
     networks: [public, internal]
     depends_on:
       postgres:
@@ -168,7 +171,7 @@ services:
       - ./kong:/kong-src:ro
       - ./kong/plugins/identity-headers:/usr/local/kong/custom/kong/plugins/identity-headers:ro
     ports:
-      - "${BIND_ADDRESS:-127.0.0.1}:8080:8000"
+      - "${BIND_ADDRESS:-127.0.0.1}:${GATEWAY_HOST_PORT:-8080}:8000"
     networks: [public, internal]
     depends_on:
       backend:
@@ -192,7 +195,7 @@ services:
       KC_PUBLIC_URL: ${KC_PUBLIC_URL:?}
       GATEWAY_PUBLIC_URL: ${GATEWAY_PUBLIC_URL:?}
     ports:
-      - "${BIND_ADDRESS:-127.0.0.1}:4200:8080"
+      - "${BIND_ADDRESS:-127.0.0.1}:${FRONT_HOST_PORT:-4200}:8080"
     networks: [public]
     depends_on:
       keycloak:

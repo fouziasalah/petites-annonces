@@ -47,7 +47,8 @@ call() {
 }
 header() { grep -i "^$1:" "$work/headers" | head -1 | cut -d' ' -f2- | tr -d '\r'; }
 body_field() { json_string "$1" < "$work/body"; }
-backend_hits() { docker compose -f "$ROOT_DIR/docker-compose.yml" logs backend 2>/dev/null | grep -c "| X_USER_ID="; }
+# Requêtes /api/ arrivées au backend (on exclut /actuator/health, appelé par le healthcheck Docker).
+backend_hits() { docker compose -f "$ROOT_DIR/docker-compose.yml" logs backend 2>/dev/null | grep -c " /api/[^ ]* | X_USER_ID="; }
 
 # --- JWT forgés --------------------------------------------------------------
 pem_from_body() { # pem_from_body <type> <base64>
