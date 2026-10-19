@@ -147,9 +147,11 @@ jobs:
           test -n "$domain" || { echo "PUBLIC_DOMAIN absent de ENV_FILE"; exit 1; }
           echo "PUBLIC_DOMAIN=$domain" >> "$GITHUB_ENV"
 
+      - name: Préparation de la VM (Docker, dossier, ports — idempotent)
+        run: ssh vm "DEPLOY_DIR=$DEPLOY_DIR bash -s" < scripts/vm-bootstrap.sh
+
       - name: Copie des fichiers de déploiement
         run: |
-          ssh vm "mkdir -p $DEPLOY_DIR"
           # Uniquement ce qui est monté dans les conteneurs : pas de code source sur la VM.
           tar czf - docker-compose.yml docker-compose.vm.yml kong keycloak postgres caddy \
             | ssh vm "tar xzf - -C $DEPLOY_DIR"

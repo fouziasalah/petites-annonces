@@ -4,6 +4,8 @@
 !.env.example
 *.pem
 *.key
+# Valeurs des secrets GitHub préparées localement (scripts/prepare-secrets.sh)
+.secrets/
 
 # --- IDE / OS ---
 .idea/

@@ -16,7 +16,7 @@ git push main ──► GitHub Actions
 |---|---|
 | Dépôt GitHub | `github.com/fouziasalah/petites-annonces` (public) |
 | Images Docker Hub | `fouziasalahhhh/petitesannonces-backend`, `fouziasalahhhh/petitesannonces-frontend` |
-| VM | Ubuntu 24.04, `72.60.188.97`, dossier `/opt/petitesannonces`, utilisateur `deploy` |
+| VM | Ubuntu 24.04, `72.60.188.97`, dossier `/opt/petitesannonces`, connexion du robot en `root` |
 
 ## 1. Le problème « localhost » et les deux options
 
@@ -36,102 +36,73 @@ ce qui permet d'obtenir un vrai certificat HTTPS sans acheter de domaine.
 
 **Tunnel (option A)**, depuis ton PC :
 ```bash
-ssh -N -L 4200:localhost:4200 -L 8080:localhost:8080 -L 8180:localhost:8180 deploy@72.60.188.97
+ssh -N -L 4200:localhost:4200 -L 8080:localhost:8080 -L 8180:localhost:8180 root@72.60.188.97
 ```
 
-## 2. 🧑 Préparer la VM (une seule fois)
+## 2. 🤖 La VM est préparée par la pipeline
 
-Connecté en `root` sur la VM.
+Aucune commande à taper sur la VM. Avant chaque déploiement, le CD exécute
+`scripts/vm-bootstrap.sh` par SSH (idempotent) :
 
-**2.1 État des lieux** — envoie-moi la sortie, pour vérifier la RAM et les ports déjà occupés :
-```bash
-free -h && nproc && docker --version; docker compose version; ss -tlnp | grep -E ':(22|80|443|4200|8080|8180) '
-```
+- installe Docker Engine + plugin Compose depuis le dépôt officiel Docker s'ils manquent ;
+- crée `/opt/petitesannonces` ;
+- si ufw est actif, autorise 80/tcp et 443/tcp (Let's Encrypt doit joindre le port 80) —
+  il n'active jamais ufw lui-même, pour ne pas risquer de couper SSH ;
+- s'arrête avec un message clair si 80/443 sont déjà occupés par un autre service.
 
-**2.2 Docker Engine + plugin Compose** (si absent — dépôt officiel Docker) :
-```bash
-apt-get update && apt-get install -y ca-certificates curl
-install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-chmod a+r /etc/apt/keyrings/docker.asc
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
-  > /etc/apt/sources.list.d/docker.list
-apt-get update && apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-```
-
-**2.3 Utilisateur de déploiement** — GitHub Actions ne se connecte pas en root :
-```bash
-adduser --disabled-password --gecos "" deploy
-usermod -aG docker deploy
-install -d -o deploy -g deploy /opt/petitesannonces
-install -d -m 700 -o deploy -g deploy /home/deploy/.ssh
-```
-> Être dans le groupe `docker` équivaut à être root sur la machine : ce compte ne sert qu'au déploiement.
-
-**2.4 Clé SSH dédiée au déploiement** — sur **ton PC** (Git Bash), sans passphrase car c'est un robot qui l'utilise :
-```bash
-ssh-keygen -t ed25519 -N "" -C "github-actions-petitesannonces" -f ~/.ssh/petitesannonces_deploy
-cat ~/.ssh/petitesannonces_deploy.pub          # à copier sur la VM
-```
-Puis sur la **VM** (colle la ligne `ssh-ed25519 …` à la place de `<CLE_PUBLIQUE>`) :
-```bash
-echo "<CLE_PUBLIQUE>" >> /home/deploy/.ssh/authorized_keys
-chown deploy:deploy /home/deploy/.ssh/authorized_keys && chmod 600 /home/deploy/.ssh/authorized_keys
-```
-Test depuis ton PC : `ssh -i ~/.ssh/petitesannonces_deploy deploy@72.60.188.97 docker ps`
-
-**2.5 Pare-feu**
-```bash
-ufw allow OpenSSH
-ufw allow 80/tcp && ufw allow 443/tcp      # option B uniquement
-ufw enable && ufw status
-```
+> Le robot se connecte en `root` (nécessaire pour installer Docker sans intervention).
+> Durcissement possible ensuite : utilisateur `deploy` dans le groupe `docker`, et `VM_USER=deploy`.
+>
 > ⚠️ Docker écrit ses propres règles iptables : un port publié en `0.0.0.0:xxxx` est joignable
-> **même si ufw le bloque**. C'est pourquoi le compose publie sur `${BIND_ADDRESS}` = `127.0.0.1` :
-> seuls le tunnel SSH (A) ou Caddy (B) y accèdent.
+> **même si ufw le bloque**. C'est pourquoi le compose publie 4200/8080/8180 sur `127.0.0.1` :
+> seul Caddy (80/443) est exposé.
 
-## 3. 🧑 Docker Hub
+## 3. 🧑 Ce que tu fais (une seule fois)
 
-1. https://hub.docker.com → *Account settings* → *Personal access tokens* → **Generate new token**
-   - description : `github-actions-petitesannonces`, permissions : **Read & Write**
-2. Copie le token (affiché une seule fois) → il ira dans le secret `DOCKERHUB_TOKEN`.
-
-Les dépôts d'images sont créés automatiquement (publics) au premier push.
-
-## 4. 🧑 Générer les secrets de production
-
-Sur ton PC, à la racine du projet :
+**3.1 Préparer les fichiers de secrets** — sur ton PC, à la racine du projet :
 ```bash
-scripts/init-prod-env.sh 72-60-188-97.sslip.io    # option B
-# ou : scripts/init-prod-env.sh                   # option A
+scripts/prepare-secrets.sh
 ```
-🤖 Le script crée **`.env.prod`** (ignoré par Git) : mots de passe aléatoires, **nouvelle** paire RSA
-(différente de la clé de dev publique), URLs publiques. Conserve-le dans un gestionnaire de mots de
-passe : il contient les identifiants admin Keycloak et ceux des comptes de test.
+🤖 Crée la clé SSH du robot (`~/.ssh/petitesannonces_deploy`), `.env.prod` (mots de passe
+aléatoires, **nouvelle** paire RSA, URLs `https://…sslip.io`) et le dossier **`.secrets/`** avec un
+fichier par secret GitHub. `.env.prod` et `.secrets/` sont ignorés par Git. Conserve `.env.prod`
+dans un gestionnaire de mots de passe : il contient les identifiants admin Keycloak.
 
-## 5. 🧑 Secrets GitHub
+**3.2 Autoriser la clé du robot sur la VM** — depuis ton PC (demande la passphrase de TA clé) :
+```bash
+ssh-copy-id -i ~/.ssh/petitesannonces_deploy.pub root@72.60.188.97
+ssh -i ~/.ssh/petitesannonces_deploy root@72.60.188.97 "echo OK"     # doit afficher OK
+```
 
-Dépôt → *Settings* → *Secrets and variables* → *Actions* → **New repository secret**.
+**3.3 Token Docker Hub** — https://hub.docker.com → *Account settings* → *Personal access tokens*
+→ **Generate new token** (`github-actions-petitesannonces`, **Read & Write**). Colle-le dans
+`.secrets/DOCKERHUB_TOKEN` (ou directement dans GitHub à l'étape suivante).
 
-| Secret | Valeur | Comment l'obtenir |
+**3.4 Secrets GitHub** — https://github.com/fouziasalah/petites-annonces/settings/secrets/actions
+→ **New repository secret**, une fois par fichier de `.secrets/` : *Name* = nom du fichier,
+*Secret* = son contenu (ouvre-le dans ton éditeur, copie tout).
+
+| Secret | Fichier | Contenu |
 |---|---|---|
-| `DOCKERHUB_USERNAME` | `fouziasalahhhh` | — |
-| `DOCKERHUB_TOKEN` | token Docker Hub | étape 3 |
-| `VM_HOST` | `72.60.188.97` | — |
-| `VM_USER` | `deploy` | étape 2.3 |
-| `VM_SSH_PORT` | `22` | — |
-| `VM_SSH_KEY` | contenu **complet** de `~/.ssh/petitesannonces_deploy` (clé **privée**, lignes BEGIN/END comprises) | `cat ~/.ssh/petitesannonces_deploy` |
-| `VM_KNOWN_HOSTS` | empreinte du serveur (évite de désactiver la vérification SSH) | `ssh-keyscan -p 22 72.60.188.97` |
-| `ENV_FILE` | contenu complet de `.env.prod` | `cat .env.prod` |
+| `DOCKERHUB_USERNAME` | `.secrets/DOCKERHUB_USERNAME` | `fouziasalahhhh` |
+| `DOCKERHUB_TOKEN` | `.secrets/DOCKERHUB_TOKEN` | token de l'étape 3.3 |
+| `VM_HOST` | `.secrets/VM_HOST` | `72.60.188.97` |
+| `VM_USER` | `.secrets/VM_USER` | `root` |
+| `VM_SSH_PORT` | `.secrets/VM_SSH_PORT` | `22` |
+| `VM_SSH_KEY` | `.secrets/VM_SSH_KEY` | clé **privée** du robot (lignes BEGIN/END comprises) |
+| `VM_KNOWN_HOSTS` | `.secrets/VM_KNOWN_HOSTS` | empreinte du serveur (`ssh-keyscan`) : évite de désactiver la vérification SSH |
+| `ENV_FILE` | `.secrets/ENV_FILE` | copie de `.env.prod` |
 
-Puis *Settings* → *Environments* → **New environment** `production` (tu peux y activer
-*Required reviewers* pour valider chaque déploiement à la main).
+**3.5 Environnement et interrupteur**
+- *Settings* → *Environments* → **New environment** : `production` (option : *Required reviewers*
+  pour valider chaque déploiement à la main) ;
+- *Settings* → *Secrets and variables* → *Actions* → onglet **Variables** → **New repository
+  variable** : `DEPLOY_ENABLED` = `true`. Tant qu'elle n'existe pas, le CD est ignoré.
 
-Enfin, l'interrupteur : *Settings* → *Secrets and variables* → *Actions* → onglet **Variables** →
-**New repository variable** `DEPLOY_ENABLED` = `true`. Tant qu'elle n'existe pas, le workflow CD
-est ignoré (la CI tourne normalement).
+**3.6 Premier déploiement** — *Actions* → **CD** → *Run workflow* (champ `image_tag` vide).
+Ensuite, chaque push sur `main` dont la CI est verte est déployé automatiquement.
 
-## 6. 🤖 Ce que fait la pipeline
+## 4. 🤖 Ce que fait la pipeline
 
 **`ci.yml`** — à chaque push sur `main` et chaque pull request :
 
@@ -156,13 +127,13 @@ est ignoré (la CI tourne normalement).
    - smoke tests HTTPS : `config.json` du front, `issuer` de Keycloak, `401` de la gateway sans token ;
    - `docker image prune -f`.
 
-## 7. Rollback
+## 5. Rollback
 
 *Actions* → *CD* → *Run workflow* → renseigner `image_tag` avec le SHA court d'un déploiement
 précédent (visible dans l'historique des runs ou sur Docker Hub). Le job de build est sauté et
 la VM redémarre sur ces images.
 
-## 8. Points d'attention
+## 6. Points d'attention
 
 - **Realm et `init.sql` ne s'appliquent qu'au premier démarrage** (volume vide). Changer
   `.env.prod` après le premier déploiement ne change ni les mots de passe en base ni le realm :
