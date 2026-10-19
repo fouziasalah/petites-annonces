@@ -36,10 +36,15 @@ services:
       # -----------------------------------------------------------------------
       - name: cors
         config:
-          # Une seule origine autorisée : http://evil.local ne reçoit pas
-          # d'Access-Control-Allow-Origin, le navigateur bloque la réponse (GW-09).
+          # Une seule origine autorisée, écrite en REGEX ANCRÉE (^…$, points échappés),
+          # calculée depuis FRONT_PUBLIC_URL par render-config.sh.
+          # Pourquoi pas l'URL telle quelle ? Avec UNE origine littérale, Kong renvoie
+          # toujours cette origine dans Access-Control-Allow-Origin, même à
+          # http://evil.local. Sous forme de regex, Kong compare réellement l'Origin
+          # reçu : evil.local n'obtient aucun en-tête CORS (GW-09).
+          # Guillemets simples : en YAML, « \. » n'est pas un échappement valide entre doubles.
           origins:
-            - "${FRONT_PUBLIC_URL}"
+            - '${FRONT_ORIGIN_REGEX}'
           methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
           # Content-Type obligatoire : un POST/PUT JSON déclenche un preflight qui
           # l'annonce dans Access-Control-Request-Headers.

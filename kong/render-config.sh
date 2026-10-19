@@ -6,6 +6,7 @@
 #
 # Remplace UNIQUEMENT ces variables (liste blanche, aucun autre « $ » n'est touché) :
 #   ${FRONT_PUBLIC_URL}, ${KC_PUBLIC_URL}, ${REALM_RSA_PUBLIC_KEY}
+#   ${FRONT_ORIGIN_REGEX} : dérivée de FRONT_PUBLIC_URL → ^https://app\.exemple\.fr$
 # La clé publique (base64 sur une ligne dans .env) est découpée en lignes de
 # 64 caractères, avec l'indentation du placeholder : c'est le format PEM attendu.
 #
@@ -29,7 +30,18 @@ awk -v front="$FRONT_PUBLIC_URL" -v kc="$KC_PUBLIC_URL" -v key="$REALM_RSA_PUBLI
         for (i = 1; i <= length(key); i += 64) print indent substr(key, i, 64)
         next
     }
+    BEGIN {
+        # Points échappés : dans une regex, « . » signifierait « n importe quel caractère ».
+        # Concaténation plutôt que gsub : le traitement des antislashs dans le remplacement
+        # de gsub diffère selon les awk (mawk dans l image Kong, gawk ailleurs).
+        # (Pas d apostrophe dans ce programme : il est entre guillemets simples.)
+        n = split(front, parts, ".")
+        origin_regex = parts[1]
+        for (i = 2; i <= n; i++) origin_regex = origin_regex "\\." parts[i]
+        origin_regex = "^" origin_regex "$"
+    }
     {
+        gsub(/\$\{FRONT_ORIGIN_REGEX\}/, origin_regex)
         gsub(/\$\{FRONT_PUBLIC_URL\}/, front)
         gsub(/\$\{KC_PUBLIC_URL\}/, kc)
         print
