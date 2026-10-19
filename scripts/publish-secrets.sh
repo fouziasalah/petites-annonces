@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 # -----------------------------------------------------------------------------
 # Envoie la configuration de déploiement dans GitHub, avec la CLI officielle « gh » :
-#   - les 8 secrets à partir des fichiers de .secrets/ (scripts/prepare-secrets.sh) ;
-#   - l'environnement « production » ;
-#   - la variable DEPLOY_ENABLED=true (active le workflow CD).
+#   - les 8 secrets à partir des fichiers de .secrets/ (scripts/prepare-secrets.sh).
 #
 # Prérequis : gh installé (winget install --id GitHub.cli) et authentifié (gh auth login).
 # Les valeurs sont lues dans les fichiers et transmises chiffrées à GitHub : elles ne
@@ -33,13 +31,6 @@ for name in "${SECRETS[@]}"; do
     gh secret set "$name" --repo "$REPO" < "$DIR/$name"
     echo "✔ secret $name"
 done
-
-# L'environnement « production » (référencé par le job deploy) : créé s'il n'existe pas.
-gh api --method PUT "repos/$REPO/environments/production" > /dev/null
-echo "✔ environnement production"
-
-gh variable set DEPLOY_ENABLED --repo "$REPO" --body true
-echo "✔ variable DEPLOY_ENABLED=true"
 
 echo
 echo "Prochaine étape : gh workflow run cd.yml --repo $REPO   (ou Actions → CD → Run workflow)"

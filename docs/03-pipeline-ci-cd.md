@@ -154,12 +154,10 @@ n'est nécessaire, une pull request venant d'un fork peut donc être testée san
 - `workflow_run` : quand **CI** se termine sur `main` → on ne déploie que si elle a **réussi** ;
 - `workflow_dispatch` : bouton *Run workflow*, avec un `image_tag` optionnel (rollback).
 
-**Interrupteur** : la variable de dépôt `DEPLOY_ENABLED` doit valoir `true`, sinon tout est sauté.
-
 ```mermaid
 flowchart TB
     S{"CI réussie sur main<br/>ou Run workflow ?"} -->|non| X["rien"]
-    S -->|oui, DEPLOY_ENABLED=true| BP
+    S -->|oui| BP
     subgraph BP["job build-push"]
       direction TB
       b1["checkout du commit validé par la CI"] --> b2["tag = SHA court (ex. c69dc54)"]
@@ -168,7 +166,7 @@ flowchart TB
       b4 --> b5["build + push frontend :c69dc54 et :latest"]
     end
     BP --> DP
-    subgraph DP["job deploy — environnement production, un seul à la fois"]
+    subgraph DP["job deploy — un seul à la fois"]
       direction TB
       d1["SSH : clé VM_SSH_KEY + empreinte VM_KNOWN_HOSTS"] --> d2["prépare .env = ENV_FILE + IMAGE_TAG=c69dc54"]
       d2 --> d3["vm-bootstrap.sh : Docker installé ? dossier ? ports 80/443 libres ?"]

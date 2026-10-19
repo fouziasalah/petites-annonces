@@ -96,11 +96,7 @@ ssh -i ~/.ssh/petitesannonces_deploy root@72.60.188.97 "echo OK"     # doit affi
 | `VM_KNOWN_HOSTS` | `.secrets/VM_KNOWN_HOSTS` | empreinte du serveur (`ssh-keyscan`) : évite de désactiver la vérification SSH |
 | `ENV_FILE` | `.secrets/ENV_FILE` | copie de `.env.prod` |
 
-**3.5 Environnement et interrupteur**
-- *Settings* → *Environments* → **New environment** : `production` (option : *Required reviewers*
-  pour valider chaque déploiement à la main) ;
-- *Settings* → *Secrets and variables* → *Actions* → onglet **Variables** → **New repository
-  variable** : `DEPLOY_ENABLED` = `true`. Tant qu'elle n'existe pas, le CD est ignoré.
+Aucun environnement GitHub ni variable à créer : les 8 secrets suffisent.
 
 **3.6 Premier déploiement** — *Actions* → **CD** → *Run workflow* (champ `image_tag` vide).
 Ensuite, chaque push sur `main` dont la CI est verte est déployé automatiquement.
@@ -137,7 +133,7 @@ un contexte sécurisé pour le navigateur.
 
 1. **build-push** : construit les images backend et frontend, les pousse sur Docker Hub avec deux
    tags : le SHA court du commit (immuable, sert au rollback) et `latest`.
-2. **deploy** (environnement `production`, un seul déploiement à la fois) :
+2. **deploy** (un seul déploiement à la fois) :
    - SSH avec la clé dédiée, empreinte du serveur vérifiée (`VM_KNOWN_HOSTS`) ;
    - copie de `docker-compose*.yml`, `kong/`, `keycloak/`, `postgres/`, `caddy/` dans
      `/opt/petitesannonces` (pas de code source sur la VM : il est dans les images) ;

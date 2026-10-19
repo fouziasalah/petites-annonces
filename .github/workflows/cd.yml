@@ -33,12 +33,9 @@ jobs:
   build-push:
     name: Build et push des images
     # Sur workflow_run, ne rien faire si la CI a échoué.
-    # DEPLOY_ENABLED (Settings → Secrets and variables → Actions → Variables) : interrupteur
-    # général, à passer à « true » une fois les secrets et la VM prêts.
     if: >-
-      vars.DEPLOY_ENABLED == 'true' && (
-        (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
-        (github.event_name == 'workflow_dispatch' && inputs.image_tag == ''))
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name == 'workflow_dispatch' && inputs.image_tag == '')
     runs-on: ubuntu-latest
     outputs:
       image_tag: ${{ steps.vars.outputs.tag }}
@@ -101,12 +98,10 @@ jobs:
     needs: build-push
     # S'exécute après un build réussi, OU directement pour un rollback manuel.
     if: >-
-      always() && vars.DEPLOY_ENABLED == 'true' &&
+      always() &&
       (needs.build-push.result == 'success' ||
        (github.event_name == 'workflow_dispatch' && inputs.image_tag != ''))
     runs-on: ubuntu-latest
-    # Environnement GitHub « production » : on peut y exiger une validation manuelle.
-    environment: production
     # Jamais deux déploiements en même temps sur la VM ; on n'annule pas celui en cours.
     concurrency:
       group: deploy-production
