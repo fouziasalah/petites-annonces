@@ -8,7 +8,7 @@ Application de gestion d'annonces dont **toute la sécurité d'accès est centra
 - **Kong contrôle** : valide le JWT, applique le rate limit, propage l'identité en headers
 - **Le backend autorise** : `@PreAuthorize`, sans jamais lire de JWT
 
-> Documentation : [compréhension et flux](docs/00-comprehension.md) · [plan](docs/01-plan.md) ·
+> Documentation : [compréhension](docs/00-comprehension.md) · [flux d'authentification](docs/02-flux-authentification.md) · [pipeline CI/CD](docs/03-pipeline-ci-cd.md) · [plan](docs/01-plan.md) ·
 > [critères (48/48)](docs/criteres.md) · [déploiement VM et CI/CD](docs/deploiement.md)
 
 ## Démarrage en une commande
