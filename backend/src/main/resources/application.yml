@@ -1,40 +1,70 @@
-# Configuration du backend. Les valeurs sensibles arrivent par variables d'environnement
-# (SPRING_DATASOURCE_URL, SPRING_DATASOURCE_USERNAME, SPRING_DATASOURCE_PASSWORD) via docker-compose.
+# =============================================================================
+# Configuration de l'application, lue par Spring Boot au démarrage.
+#
+# Toute valeur peut être remplacée par une variable d'environnement : le nom de la
+# propriété en MAJUSCULES, avec « _ » à la place de « . ».
+# Exemple : spring.datasource.password  →  SPRING_DATASOURCE_PASSWORD=monMotDePasse
+# Les mots de passe ne sont donc jamais écrits dans ce fichier.
+# =============================================================================
 spring:
   application:
+    # Nom de l'application (apparaît dans les logs).
     name: petitesannonces-backend
+
+  # --- Connexion à la base PostgreSQL (driver JDBC org.postgresql, voir pom.xml) ---
   datasource:
+    # Adresse de la base : jdbc:postgresql://<machine>:<port>/<nom de la base>.
     url: jdbc:postgresql://localhost:5432/annonces
     username: annonces
+    # Mot de passe : à fournir par la variable d'environnement SPRING_DATASOURCE_PASSWORD.
+
+  # --- JPA / Hibernate (dépendance spring-boot-starter-data-jpa) ---
   jpa:
-    # Pas de session Hibernate ouverte pendant le rendu HTTP : les accès base restent dans les services.
+    # false : la connexion à la base est fermée à la fin de chaque méthode de service, et non
+    # gardée ouverte jusqu'à l'envoi de la réponse HTTP. Évite des requêtes SQL cachées.
     open-in-view: false
     hibernate:
-      # Le schéma appartient à Flyway ; Hibernate se contente de vérifier qu'il correspond aux entités.
+      # validate : au démarrage, Hibernate vérifie que les tables correspondent aux entités,
+      # sans jamais les modifier. Ce sont les migrations Flyway qui créent les tables.
       ddl-auto: validate
+
+  # --- Jackson : conversion objets Java ↔ JSON ---
   jackson:
+    # Les champs null ne sont pas écrits dans le JSON (ex. motifRejet absent si non rejetée).
     default-property-inclusion: non_null
-  # Messages de validation en français quel que soit l'Accept-Language du client.
+
+  # --- Langue des messages de validation ---
   web:
+    # Messages d'erreur de validation toujours en français…
     locale: fr
+    # …quelle que soit la langue demandée par le client (en-tête Accept-Language).
     locale-resolver: fixed
 
+  # Flyway (dépendance flyway-core) : aucune configuration nécessaire. Au démarrage, il exécute
+  # les scripts de src/main/resources/db/migration (V1__…, V2__…) qui n'ont pas encore été appliqués.
+
+# --- Serveur web Tomcat (intégré à spring-boot-starter-web) ---
 server:
+  # Port d'écoute HTTP de l'API.
   port: 8081
+  # graceful : à l'arrêt, les requêtes en cours se terminent avant l'extinction.
   shutdown: graceful
 
-# Seul /actuator/health est exposé (healthcheck Docker). Kong ne route que /api :
-# l'actuator n'est donc jamais joignable depuis l'extérieur.
+# --- Spring Boot Actuator (dépendance spring-boot-starter-actuator) ---
 management:
   endpoints:
     web:
       exposure:
+        # Seul /actuator/health est publié (vérification que l'application fonctionne).
         include: health
   endpoint:
     health:
+      # Réponse minimale {"status":"UP"}, sans détails internes (base, disque…).
       show-details: never
 
+# --- Niveau des logs ---
 logging:
   level:
-    # DEBUG = trace des headers d'identité reçus de Kong (critère GW-08).
+    # Logs du package security. DEBUG affiche les en-têtes d'identité reçus à chaque requête.
+    # Valeur par défaut INFO, modifiable par la variable d'environnement SECURITY_LOG_LEVEL.
     fr.petitesannonces.security: ${SECURITY_LOG_LEVEL:INFO}

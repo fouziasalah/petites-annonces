@@ -1,10 +1,13 @@
 package fr.petitesannonces.config;
 
-import fr.petitesannonces.security.ProblemDetailAuthenticationEntryPoint;
-import fr.petitesannonces.security.ProblemDetailAccessDeniedHandler;
+// Classes du projet (package security)
 import fr.petitesannonces.security.HeaderAuthenticationFilter;
+import fr.petitesannonces.security.ProblemDetailAccessDeniedHandler;
+import fr.petitesannonces.security.ProblemDetailAuthenticationEntryPoint;
+// Spring Framework : déclaration d'objets gérés par Spring
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+// Spring Security : configuration de la sécurité web et des méthodes
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -15,53 +18,82 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
 
 /**
- * Chaîne de sécurité HTTP.
+ * Configuration de Spring Security pour toute l'API.
  *
- * <ul>
- *   <li><b>Stateless</b> : aucune session HTTP, l'identité est reconstruite à chaque requête.</li>
- *   <li><b>Pas de form login, http basic, logout</b> : l'authentification est faite en amont
- *       (Keycloak + Kong), le backend ne fait qu'en lire le résultat.</li>
- *   <li><b>CSRF désactivé</b> : il protège les sessions par cookie ; ici il n'y a ni session ni
- *       cookie, le navigateur ne peut pas « rejouer » une identité à l'insu de l'utilisateur.</li>
- *   <li><b>{@code @EnableMethodSecurity}</b> : toutes les règles d'accès sont des
- *       {@code @PreAuthorize}/{@code @PostAuthorize} sur les méthodes (BK-04). Ici on n'exige
- *       globalement qu'une chose : être authentifié.</li>
- * </ul>
+ * <p>Rôle : définir comment chaque requête HTTP est sécurisée. Ici le backend n'authentifie
+ * personne lui-même : il lit l'identité dans les en-têtes {@code X_USER_ID} et {@code X_ROLE_ID}
+ * (posés par la gateway) grâce à {@link HeaderAuthenticationFilter}, puis vérifie que la requête
+ * est authentifiée. Les droits précis (rôles, propriété) sont vérifiés par les annotations
+ * {@code @PreAuthorize} des contrôleurs.
+ *
+ * <p>Utilisé par : Spring Boot, automatiquement au démarrage (grâce à {@code @Configuration}).
  */
+// @Configuration (Spring) : classe de configuration ; ses méthodes @Bean créent des objets Spring.
 @Configuration
+// @EnableMethodSecurity (Spring Security) : active les annotations de sécurité sur les méthodes
+// (@PreAuthorize, @PostAuthorize). Sans elle, ces annotations seraient ignorées.
 @EnableMethodSecurity
 public class SecurityConfig {
 
+    /**
+     * Construit la chaîne de filtres de sécurité appliquée à chaque requête HTTP.
+     *
+     * @param http                     constructeur de configuration fourni par Spring Security
+     * @param authenticationEntryPoint réponse 401 quand la requête n'a pas d'identité
+     * @param accessDeniedHandler      réponse 403 quand l'identité n'a pas le droit
+     */
+    // @Bean (Spring) : l'objet renvoyé est enregistré dans Spring et utilisé par Spring Security.
+    // Les paramètres sont injectés automatiquement par Spring (ce sont des @Component du projet).
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http,
                                             ProblemDetailAuthenticationEntryPoint authenticationEntryPoint,
                                             ProblemDetailAccessDeniedHandler accessDeniedHandler) throws Exception {
         return http
+                // Désactive la protection CSRF : elle protège les sessions par cookie. Cette API
+                // n'utilise ni session ni cookie d'authentification, elle n'en a pas besoin.
                 .csrf(AbstractHttpConfigurer::disable)
+                // Désactive la page de login HTML fournie par défaut par Spring Security.
                 .formLogin(AbstractHttpConfigurer::disable)
+                // Désactive l'authentification « Basic » (identifiant:mot de passe en en-tête).
                 .httpBasic(AbstractHttpConfigurer::disable)
+                // Désactive l'URL /logout : la déconnexion se fait côté Keycloak.
                 .logout(AbstractHttpConfigurer::disable)
+                // Désactive la mémorisation de la requête d'origine (utile seulement avec un login HTML).
                 .requestCache(AbstractHttpConfigurer::disable)
+                // STATELESS : aucune session HTTP n'est créée ; l'identité est relue à chaque requête.
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                // Instancié ici et NON déclaré en @Component : sinon Spring Boot l'enregistrerait
-                // aussi comme filtre servlet global, en dehors de la chaîne de sécurité.
+                // Ajoute notre filtre qui lit X_USER_ID / X_ROLE_ID, juste avant le filtre
+                // « anonyme » de Spring Security (qui marque comme anonyme toute requête sans identité).
+                // Il est créé avec « new » et pas déclaré @Component : sinon Spring Boot
+                // l'exécuterait une deuxième fois, en dehors de la chaîne de sécurité.
                 .addFilterBefore(new HeaderAuthenticationFilter(), AnonymousAuthenticationFilter.class)
+                // Règles d'accès par URL.
                 .authorizeHttpRequests(auth -> auth
-                        // Healthcheck Docker : appelé sans headers, et jamais routé par Kong.
+                        // /actuator/health (Spring Boot Actuator) reste accessible sans identité :
+                        // il sert à vérifier que l'application est démarrée.
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
+                        // Toutes les autres URL exigent une identité (sinon 401).
                         .anyRequest().authenticated())
+                // Réponses en cas d'erreur de sécurité.
                 .exceptionHandling(errors -> errors
-                        .authenticationEntryPoint(authenticationEntryPoint)   // → 401
-                        .accessDeniedHandler(accessDeniedHandler))            // → 403
+                        // Pas d'identité → 401 au format JSON ProblemDetail.
+                        .authenticationEntryPoint(authenticationEntryPoint)
+                        // Identité sans le droit nécessaire → 403 au format JSON ProblemDetail.
+                        .accessDeniedHandler(accessDeniedHandler))
+                // Assemble la configuration en un objet SecurityFilterChain.
                 .build();
     }
 
     /**
-     * Empêche Spring Boot de créer son utilisateur « user » par défaut avec un mot de passe
-     * aléatoire : ce backend n'authentifie personne lui-même.
+     * Déclare une liste d'utilisateurs locaux vide.
+     *
+     * <p>Sans ce bean, Spring Boot créerait un utilisateur « user » avec un mot de passe aléatoire
+     * affiché dans les logs. Ce backend n'authentifie personne lui-même : on l'en empêche.
      */
     @Bean
     UserDetailsService noLocalUsers() {
+        // InMemoryUserDetailsManager (Spring Security) : gestionnaire d'utilisateurs en mémoire,
+        // créé ici sans aucun utilisateur.
         return new InMemoryUserDetailsManager();
     }
 }

@@ -1,9 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Fichier de construction Maven du backend.
+    Il déclare la version de Java, les bibliothèques utilisées (dépendances) et les plugins.
+
+    Commandes utiles (dans le dossier backend) :
+      ./mvnw spring-boot:run   démarre l'application
+      ./mvnw test              tests unitaires (*Test.java)
+      ./mvnw verify            tests unitaires + tests d'intégration (*IT.java, nécessitent Docker)
+      ./mvnw package           produit target/app.jar
+-->
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <!-- Spring Boot 3 imposé par le cahier des charges : dernier patch de la ligne 3.5. -->
+    <!-- Parent Spring Boot : fixe des versions compatibles entre elles pour toutes les
+         dépendances Spring, Hibernate, Jackson, Flyway… (d'où l'absence de <version> plus bas). -->
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
@@ -11,68 +22,75 @@
         <relativePath/>
     </parent>
 
+    <!-- Identité du projet Maven. -->
     <groupId>fr.petitesannonces</groupId>
     <artifactId>backend</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>petitesannonces-backend</name>
-    <description>API PetitesAnnonces : autorisation à partir des headers d'identité posés par Kong</description>
+    <description>API PetitesAnnonces</description>
 
     <properties>
+        <!-- Version de Java utilisée pour compiler. -->
         <java.version>21</java.version>
     </properties>
 
-    <!--
-        BK-01 : AUCUNE dépendance spring-boot-starter-oauth2-*, jjwt, nimbus ou Keycloak.
-        Le backend ne lit jamais de JWT : il fait confiance aux headers X_USER_ID / X_ROLE_ID
-        posés par la gateway, sur un réseau que le client ne peut pas atteindre.
-    -->
     <dependencies>
+        <!-- API REST : Spring MVC, serveur Tomcat intégré, Jackson (JSON). -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
+        <!-- Spring Security : filtres de sécurité, @PreAuthorize. -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
+        <!-- Accès base de données : JPA, Hibernate, Spring Data (repositories). -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jpa</artifactId>
         </dependency>
+        <!-- Validation des données reçues : @NotBlank, @Size, @Min… (Hibernate Validator). -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
+        <!-- Points de supervision : /actuator/health. -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
+        <!-- Flyway : exécute les migrations SQL de src/main/resources/db/migration au démarrage. -->
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
         </dependency>
-        <!-- Flyway 10+ : le support de chaque base est un module séparé, sinon « Unsupported Database ». -->
+        <!-- Module PostgreSQL de Flyway (obligatoire depuis Flyway 10). -->
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-database-postgresql</artifactId>
         </dependency>
+        <!-- Driver JDBC PostgreSQL ; « runtime » : utilisé à l'exécution seulement, pas dans le code. -->
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
         </dependency>
 
-        <!-- Tests : vraie base PostgreSQL dans un conteneur (Testcontainers). -->
+        <!-- ===== Tests (scope test : absents de l'application livrée) ===== -->
+        <!-- JUnit 5, AssertJ, MockMvc (appels HTTP simulés), Spring Test. -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Branche automatiquement Spring sur une base lancée par Testcontainers (@ServiceConnection). -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-testcontainers</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Testcontainers : démarre un vrai PostgreSQL dans Docker pendant les tests. -->
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>junit-jupiter</artifactId>
@@ -86,14 +104,16 @@
     </dependencies>
 
     <build>
+        <!-- Nom du fichier produit par ./mvnw package : target/app.jar. -->
         <finalName>app</finalName>
         <plugins>
+            <!-- Plugin Spring Boot : jar exécutable (java -jar) et commande spring-boot:run. -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
-            <!-- *Test = tests unitaires (surefire, phase test) ;
-                 *IT   = tests d'intégration avec Docker (failsafe, phase verify). -->
+            <!-- Failsafe : exécute les tests *IT.java lors de ./mvnw verify
+                 (les *Test.java sont exécutés par Surefire lors de ./mvnw test). -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>
