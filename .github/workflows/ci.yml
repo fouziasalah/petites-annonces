@@ -119,7 +119,7 @@ jobs:
             -e GATEWAY_URL=https://api.exemple.test \
             petitesannonces-frontend:ci
           # Attend que Nginx réponde (au plus 30 secondes).
-          for i in $(seq 1 30); do curl -sf http://localhost:8080/ > /dev/null && break; sleep 1; done
+          for _ in $(seq 1 30); do curl -sf http://localhost:8080/ > /dev/null && break; sleep 1; done
 
       - name: Vérification de config.json et du routage Angular
         run: |
