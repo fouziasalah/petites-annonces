@@ -1,0 +1,88 @@
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.75rem 1.5rem;
+  background: var(--primary);
+  color: #fff;
+  flex-wrap: wrap;
+
+  a {
+    color: #fff;
+    text-decoration: none;
+  }
+
+  .brand {
+    font-weight: 700;
+    font-size: 1.15rem;
+  }
+
+  nav {
+    display: flex;
+    gap: 1rem;
+    flex: 1;
+    flex-wrap: wrap;
+
+    a {
+      opacity: 0.85;
+      padding: 0.25rem 0;
+      border-bottom: 2px solid transparent;
+
+      &.active {
+        opacity: 1;
+        border-bottom-color: #fff;
+      }
+    }
+  }
+
+  .user {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+}
+
+.notifications {
+  position: fixed;
+  top: 4.5rem;
+  right: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  z-index: 10;
+  max-width: 26rem;
+}
+
+.notification {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  background: #fff;
+  border-left: 4px solid var(--primary);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 15%);
+
+  &.erreur {
+    border-left-color: var(--danger);
+  }
+
+  &.succes {
+    border-left-color: var(--success);
+  }
+
+  button {
+    background: none;
+    border: none;
+    color: inherit;
+    font-size: 1.2rem;
+    padding: 0;
+    cursor: pointer;
+  }
+}
+
+main {
+  max-width: 60rem;
+  margin: 1.5rem auto;
+  padding: 0 1rem;
+}

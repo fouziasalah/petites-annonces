@@ -1,0 +1,31 @@
+<header class="topbar">
+  <a class="brand" routerLink="/annonces">PetitesAnnonces</a>
+  <nav>
+    <a routerLink="/annonces" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Annonces</a>
+    <a routerLink="/mes-annonces" routerLinkActive="active">Mes annonces</a>
+    <a routerLink="/annonces/nouvelle" routerLinkActive="active">Publier</a>
+    @if (auth.hasRole('MODERATEUR')) {
+      <a routerLink="/moderation" routerLinkActive="active">Modération</a>
+    }
+    @if (auth.hasRole('ADMIN')) {
+      <a routerLink="/categories" routerLinkActive="active">Catégories</a>
+    }
+  </nav>
+  <div class="user">
+    <span>{{ auth.username() }}</span>
+    <button type="button" class="secondary" (click)="auth.logout()">Se déconnecter</button>
+  </div>
+</header>
+
+<div class="notifications" aria-live="polite">
+  @for (n of notifications.notifications(); track n.id) {
+    <div class="notification" [class]="n.kind" role="status">
+      <span>{{ n.message }}</span>
+      <button type="button" aria-label="Fermer" (click)="notifications.dismiss(n.id)">×</button>
+    </div>
+  }
+</div>
+
+<main>
+  <router-outlet />
+</main>

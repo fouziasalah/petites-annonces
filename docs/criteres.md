@@ -14,22 +14,22 @@ Légende : ⬜ à faire · 🟡 en cours · ✅ démontré
 ## Keycloak et PKCE (KC)
 | ID | Critère | Démonstration | Statut |
 |---|---|---|---|
-| KC-01 | Non connecté → login du realm | navigateur | ⬜ |
-| KC-02 | URL d'autorisation avec `code_challenge` S256 | DevTools réseau | ⬜ |
-| KC-03 | Échange du code avec `code_verifier`, aucun token dans l'URL | DevTools réseau | ⬜ |
+| KC-01 | Non connecté → login du realm | navigateur | ✅ |
+| KC-02 | URL d'autorisation avec `code_challenge` S256 | DevTools réseau | ✅ |
+| KC-03 | Échange du code avec `code_verifier`, aucun token dans l'URL | DevTools réseau | ✅ |
 | KC-04 | `grant_type=password` refusé | `curl` → `unauthorized_client` | ✅ |
 | KC-05 | Token de `modo` : `MODERATEUR` et `USER` | `scripts/get-token.sh modo` | ✅ |
-| KC-06 | Déconnexion ferme la session SSO | navigateur | ⬜ |
+| KC-06 | Déconnexion ferme la session SSO | navigateur | ✅ |
 
 ## Frontend (FR)
 | ID | Critère | Démonstration | Statut |
 |---|---|---|---|
-| FR-01 | Bearer uniquement vers la gateway | DevTools réseau | ⬜ |
-| FR-02 | Aucun token en localStorage | DevTools Application | ⬜ |
-| FR-03 | `alice` ne voit pas Modération/Catégories, `/moderation` redirige | navigateur | ⬜ |
+| FR-01 | Bearer uniquement vers la gateway | DevTools réseau | ✅ |
+| FR-02 | Aucun token en localStorage | DevTools Application | ✅ |
+| FR-03 | `alice` ne voit pas Modération/Catégories, `/moderation` redirige | navigateur | ✅ |
 | FR-04 | Token renouvelé après 5 min sans login | navigateur (attendre) | ⬜ |
-| FR-05 | 429 → message avec `Retry-After` | navigateur | ⬜ |
-| FR-06 | 403 → « accès refusé » sans déconnexion | navigateur | ⬜ |
+| FR-05 | 429 → message avec `Retry-After` | navigateur | ✅ |
+| FR-06 | 403 → « accès refusé » sans déconnexion | navigateur | ✅ |
 
 ## Gateway (GW)
 | ID | Critère | Démonstration | Statut |

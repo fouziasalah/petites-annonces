@@ -179,3 +179,29 @@ services:
       timeout: 5s
       retries: 10
       start_period: 15s
+
+  # ---------------------------------------------------------------------------
+  # Front Angular servi par Nginx (non-root, port interne 8080).
+  # ---------------------------------------------------------------------------
+  frontend:
+    build: ./frontend
+    image: ${DOCKERHUB_USERNAME:-local}/petitesannonces-frontend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      # Écrites dans /config.json au démarrage (URLs vues par le NAVIGATEUR).
+      KC_PUBLIC_URL: ${KC_PUBLIC_URL:?}
+      GATEWAY_PUBLIC_URL: ${GATEWAY_PUBLIC_URL:?}
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:4200:8080"
+    networks: [public]
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 5s

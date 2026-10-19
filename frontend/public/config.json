@@ -1,0 +1,6 @@
+{
+  "keycloakUrl": "http://localhost:8180",
+  "realm": "annonces",
+  "clientId": "annonces-front",
+  "gatewayUrl": "http://localhost:8080"
+}
