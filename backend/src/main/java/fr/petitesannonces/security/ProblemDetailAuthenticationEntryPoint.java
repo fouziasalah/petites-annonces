@@ -14,7 +14,7 @@ import java.io.IOException;
  * En fonctionnement normal cela n'arrive pas, Kong rejette avant ; c'est la défense en profondeur.
  */
 @Component
-class ProblemDetailAuthenticationEntryPoint implements AuthenticationEntryPoint {
+public class ProblemDetailAuthenticationEntryPoint implements AuthenticationEntryPoint {
 
     private final ProblemDetailWriter writer;
 

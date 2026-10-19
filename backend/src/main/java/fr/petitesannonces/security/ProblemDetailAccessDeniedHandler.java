@@ -11,7 +11,7 @@ import java.io.IOException;
 
 /** 403 : l'utilisateur est identifié mais une règle {@code @PreAuthorize} lui refuse l'action. */
 @Component
-class ProblemDetailAccessDeniedHandler implements AccessDeniedHandler {
+public class ProblemDetailAccessDeniedHandler implements AccessDeniedHandler {
 
     private final ProblemDetailWriter writer;
 

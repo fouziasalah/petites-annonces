@@ -1,6 +1,6 @@
 package fr.petitesannonces.security;
 
-import fr.petitesannonces.annonce.AnnonceIntrouvableException;
+import fr.petitesannonces.exception.AnnonceIntrouvableException;
 import org.aopalliance.intercept.MethodInvocation;
 import org.springframework.security.authorization.AuthorizationResult;
 import org.springframework.security.authorization.method.MethodAuthorizationDeniedHandler;

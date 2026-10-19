@@ -1,7 +1,7 @@
 package fr.petitesannonces.security;
 
-import fr.petitesannonces.annonce.AnnonceIntrouvableException;
-import fr.petitesannonces.annonce.AnnonceRepository;
+import fr.petitesannonces.exception.AnnonceIntrouvableException;
+import fr.petitesannonces.repository.AnnonceRepository;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
