@@ -44,7 +44,8 @@ export class AuthService {
       redirectUri: `${origin}/`,
       postLogoutRedirectUri: `${origin}/`,
       // HTTPS exigé, sauf pour localhost (développement et tunnel SSH).
-      requireHttps: 'remoteOnly',
+      // requireHttps: 'remoteOnly',
+      requireHttps:false,
       // Refresh à 75 % de la durée de vie de l'access token (5 min → ~3 min 45).
       timeoutFactor: 0.75,
       // Pas d'iframe de vérification de session : bloquée par les navigateurs (cookies tiers).
